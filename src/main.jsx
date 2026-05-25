@@ -870,6 +870,19 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
       document.documentElement.style.scrollBehavior = previousScrollBehavior;
     };
   }, [open, active?.selector]);
+  // Re-apply .tour-highlight after every render. The main placeTour
+  // effect only re-runs when active.selector changes; if the parent
+  // view re-renders (e.g. the planner's optimizer pass finishing and
+  // re-mounting wizard-grid) between step transitions, the class is
+  // lost from the newly-mounted node. This effect is cheap and idempotent.
+  useLayoutEffect(() => {
+    if (!open || !active?.selector || !spotlight) return;
+    const target = tourTarget(active.selector);
+    if (target && !target.classList.contains("tour-highlight")) {
+      [...document.getElementsByClassName("tour-highlight")].forEach((el) => el.classList.remove("tour-highlight"));
+      target.classList.add("tour-highlight");
+    }
+  });
   if (!open) return null;
   const go = (nextStep) => {
     const bounded = clamp(nextStep, 0, TOUR_STEPS.length - 1);

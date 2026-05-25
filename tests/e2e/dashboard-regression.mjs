@@ -604,9 +604,23 @@ try {
       return x * y;
     };
     const visited = [];
+    // After placeTour fires we still need to wait until the app has
+    // actually re-applied .tour-highlight to a mounted DOM node — on
+    // view-switch steps (planner/tax/sim/schedule), React can swap out
+    // the highlighted container after the class is set, leaving the
+    // snapshot to see highlighted="". Poll up to ~3s for a present and
+    // visible .tour-highlight before snapshotting.
+    const waitForTourHighlight = async () => {
+      for (let i = 0; i < 200; i += 1) {
+        const node = document.querySelector(".tour-highlight");
+        if (node && node.getBoundingClientRect().width > 0) return;
+        await nextFrame();
+      }
+    };
     for (let guard = 0; guard < 8; guard++) {
       const tour = document.querySelector(".guided-tour");
       if (!tour) break;
+      await waitForTourHighlight();
       const highlighted = document.querySelector(".tour-highlight");
       const spotlight = document.querySelector(".tour-spotlight");
       const card = rect(".tour-card");
