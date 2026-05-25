@@ -131,33 +131,33 @@ if (main.includes("window.__FIN_DASHBOARD_TEST_API__") && (!main.includes("finTe
 
 const css = await readFile("src/styles.css", "utf8");
 const cssExceptionsPath = "docs/internal/CSS-DUPLICATE-SELECTOR-EXCEPTIONS.md";
-const cssDuplicateExceptions = existsSync(cssExceptionsPath)
-  ? await readFile(cssExceptionsPath, "utf8")
-  : "";
-const cssSelectorOccurrences = new Map();
-let cssContext = "root";
-for (const rawLine of css.replace(/\/\*[\s\S]*?\*\//g, "").split("\n")) {
-  const line = rawLine.trim();
-  if (!line) continue;
-  if (line.startsWith("@media") || line.startsWith("@supports")) {
-    cssContext = line.replace(/\s*\{\s*$/, "");
-    continue;
+if (existsSync(cssExceptionsPath)) {
+  const cssDuplicateExceptions = await readFile(cssExceptionsPath, "utf8");
+  const cssSelectorOccurrences = new Map();
+  let cssContext = "root";
+  for (const rawLine of css.replace(/\/\*[\s\S]*?\*\//g, "").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("@media") || line.startsWith("@supports")) {
+      cssContext = line.replace(/\s*\{\s*$/, "");
+      continue;
+    }
+    if (line === "}") {
+      cssContext = "root";
+      continue;
+    }
+    if (!line.endsWith("{") || line.startsWith("@") || line.includes(": ")) continue;
+    const selectors = line.slice(0, -1).split(",").map((item) => item.trim()).filter(Boolean);
+    for (const selector of selectors) {
+      const key = `${cssContext}::${selector}`;
+      cssSelectorOccurrences.set(key, (cssSelectorOccurrences.get(key) || 0) + 1);
+    }
   }
-  if (line === "}") {
-    cssContext = "root";
-    continue;
+  const duplicateSelectors = [...cssSelectorOccurrences.entries()].filter(([, count]) => count > 1);
+  const undocumentedDuplicateSelectors = duplicateSelectors.filter(([key, count]) => !cssDuplicateExceptions.includes(`\`${key} x${count}\``));
+  if (undocumentedDuplicateSelectors.length) {
+    failures.push(`src/styles.css has undocumented duplicate selectors: ${undocumentedDuplicateSelectors.map(([key, count]) => `${key} x${count}`).slice(0, 12).join("; ")}`);
   }
-  if (!line.endsWith("{") || line.startsWith("@") || line.includes(": ")) continue;
-  const selectors = line.slice(0, -1).split(",").map((item) => item.trim()).filter(Boolean);
-  for (const selector of selectors) {
-    const key = `${cssContext}::${selector}`;
-    cssSelectorOccurrences.set(key, (cssSelectorOccurrences.get(key) || 0) + 1);
-  }
-}
-const duplicateSelectors = [...cssSelectorOccurrences.entries()].filter(([, count]) => count > 1);
-const undocumentedDuplicateSelectors = duplicateSelectors.filter(([key, count]) => !cssDuplicateExceptions.includes(`\`${key} x${count}\``));
-if (undocumentedDuplicateSelectors.length) {
-  failures.push(`src/styles.css has undocumented duplicate selectors: ${undocumentedDuplicateSelectors.map(([key, count]) => `${key} x${count}`).slice(0, 12).join("; ")}`);
 }
 
 for (const file of [

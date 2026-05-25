@@ -193,5 +193,10 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Fetch base branch (so origin/<base_ref> resolves)
+        run: git fetch --no-tags --depth=50 origin "${{ github.base_ref }}"
       - name: Verify Co-authored-by trailers on PR commits
-        run: npm run trailer:check
+        # In PR CI, main exists only as origin/main (not as a local branch ref),
+        # so the script's default --branch mode (which uses bare `main`) cannot
+        # resolve a merge-base. Use explicit --range against origin/<base_ref>.
+        run: node scripts/precommit-trailer-check.mjs --range "origin/${{ github.base_ref }}..HEAD"
