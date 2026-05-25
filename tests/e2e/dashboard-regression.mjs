@@ -594,11 +594,17 @@ try {
     };
     // After a step advance, scroll-into-view and spotlight reposition race
     // each other on the slower CI runner — the spotlight box can be read
-    // mid-transition when its target rect hasn't yet been remeasured. Poll
-    // until the target/spotlight overlap settles for two consecutive
-    // frames before snapshotting (capped at ~stepSettleMs to avoid
-    // hanging on a genuinely broken step).
+    // mid-transition when its target rect hasn't yet been remeasured. Force
+    // the highlighted target into view, give the app a frame to reposition
+    // the spotlight, then poll the overlap until it stabilises for two
+    // consecutive frames before snapshotting (capped at ~stepSettleMs).
     const waitForSpotlightSettle = async (budgetMs) => {
+      const highlighted = document.querySelector(".tour-highlight");
+      if (highlighted) {
+        highlighted.scrollIntoView({ behavior: "auto", block: "center", inline: "center" });
+      }
+      await nextFrame();
+      await nextFrame();
       const deadline = performance.now() + budgetMs;
       let prev = -1;
       while (performance.now() < deadline) {
@@ -640,7 +646,7 @@ try {
       const primary = [...tour.querySelectorAll(".tour-actions button")].find((button) => /next|start planning/i.test(button.textContent || ""));
       primary?.click();
       await nextFrame();
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await new Promise((resolve) => setTimeout(resolve, stepSettleMs * 0.75));
     }
     return { visited, closed: !document.querySelector(".guided-tour") };
   }, process.env.CI ? 2000 : 800);
