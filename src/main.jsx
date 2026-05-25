@@ -792,7 +792,6 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
       setSpotlight(null);
       return undefined;
     }
-    const previousOverflow = document.documentElement.style.overflow;
     const previousScrollBehavior = document.documentElement.style.scrollBehavior;
     document.documentElement.style.scrollBehavior = "auto";
     let cancelled = false;
@@ -804,14 +803,13 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
         return;
       }
       const isMobile = window.innerWidth < 680;
-      // Keep overflow unlocked through the scroll AND the rAF measurement
-      // chain — re-applying overflow:hidden mid-frame snaps scrollTop back
-      // to 0 on Chromium Linux (Ubuntu CI), leaving the just-scrolled
-      // target back off-viewport and the spotlight clamped against the
-      // viewport edge. The lock is re-applied at the end of the rAF
-      // chain, after target.getBoundingClientRect has captured the post-
-      // scroll position.
-      document.documentElement.style.overflow = previousOverflow;
+      // Don't lock html overflow during the tour. Setting overflow:hidden
+      // on documentElement snaps scrollTop back to 0 on Chromium Linux
+      // (Ubuntu CI), undoing the scrollIntoView below and leaving the
+      // spotlight stranded against the viewport edge. The spotlight and
+      // tour card are both position:fixed so they don't move when the
+      // user scrolls the underlying page — losing the scroll lock costs
+      // a small UX nicety but no correctness.
       target.scrollIntoView({ behavior: "auto", block: isMobile ? "center" : active.scrollBlock || "center", inline: "nearest" });
       if (isMobile) {
         const firstRect = target.getBoundingClientRect();
@@ -848,9 +846,6 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
           cardWidth,
           placement: placement.placement
         });
-        // Re-apply the user-scroll lock only after the spotlight is in
-        // place. See the comment above the scrollIntoView call.
-        document.documentElement.style.overflow = "hidden";
       }));
     };
     const timer = window.setTimeout(placeTour, 90);
@@ -859,7 +854,6 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
       cancelled = true;
       window.clearTimeout(timer);
       window.removeEventListener("resize", placeTour);
-      document.documentElement.style.overflow = previousOverflow;
       document.documentElement.style.scrollBehavior = previousScrollBehavior;
     };
   }, [open, active?.selector]);
