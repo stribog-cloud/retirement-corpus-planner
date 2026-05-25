@@ -46,6 +46,12 @@ async function waitForModelIdle(page, timeout = 60000, { includeSlow = true } = 
   // that don't assert MC values — at N=1000 (R4.9.5a default) headless Chrome's Worker is
   // structurally slower than production Chrome (production settle ~3.9s per Hilbert
   // R4.9.5b watchlist; headless can exceed test budgets).
+  // CI: Ubuntu 2-vCPU runners can take 60-90s for slow-tier MC convergence after
+  // a multi-input household-plan edit sequence — bump the slow-tier ceiling so
+  // legitimate convergence still has room while fast-tier waits stay strict.
+  const effectiveTimeout = (process.env.CI && includeSlow && timeout < 120000)
+    ? 120000
+    : timeout;
   await page.waitForFunction((checkSlow) => {
     const stack = document.querySelector(".main-stack");
     if (!stack) return false;
@@ -53,7 +59,7 @@ async function waitForModelIdle(page, timeout = 60000, { includeSlow = true } = 
     if (stack.dataset.analyticsPending === "true") return false;
     if (checkSlow && stack.dataset.analyticsSlowPending === "true") return false;
     return true;
-  }, { timeout }, includeSlow);
+  }, { timeout: effectiveTimeout }, includeSlow);
 }
 
 async function dismissTour(page) {
@@ -937,7 +943,8 @@ try {
 	  await setInput(page, ".whatif-card .quick-field[data-label=\"Monthly cash\"] input", 150000);
 	  await setInput(page, ".whatif-card .quick-field[data-label=\"Corpus today\"] input", 17500000);
 	  await openView(page, "planner");
-	  await waitForModelIdle(page);
+	  // Latency audit measures paint timing, not MC outcomes — fast tier only.
+	  await waitForModelIdle(page, 60000, { includeSlow: false });
 	  const plannerTileLatency = await plannerTileLatencyAudit(page);
   const slowPlannerTiles = plannerTileLatency.filter((item) => !item.ok || item.ms > ciSlow(300));
   assert(!slowPlannerTiles.length, `slow planner tile response: ${JSON.stringify(slowPlannerTiles)}`);
@@ -1079,7 +1086,10 @@ try {
   await setInput(page, ".assumption-drawer .control[data-label=\"Known lump-sum goal\"] input", 1000000);
   await setInput(page, ".assumption-drawer .control[data-label=\"Lump-sum year\"] input", 4);
   await page.evaluate(() => document.querySelector(".drawer-backdrop.open .close-button")?.click());
-  await waitForModelIdle(page);
+  // Transitional wait — captureProjectionSurface below waits for slow tier
+  // itself; doubling the slow wait here can exceed 60s on Ubuntu 2-vCPU
+  // after a 12-input household-plan edit sequence.
+  await waitForModelIdle(page, 60000, { includeSlow: false });
   await openView(page, "overview");
   await page.waitForFunction(() => {
     try {
@@ -1136,7 +1146,9 @@ try {
   await openAssumptionStudio(page);
   await setSelect(page, ".assumption-drawer .control[data-label=\"Use household plan\"] select", "0");
   await page.evaluate(() => document.querySelector(".drawer-backdrop.open .close-button")?.click());
-  await waitForModelIdle(page);
+  // Transitional wait — the setInput chain below resets the slow tier
+  // anyway and any downstream MC read site does its own slow wait.
+  await waitForModelIdle(page, 60000, { includeSlow: false });
   await openView(page, "overview");
   await setInput(page, ".whatif-card .quick-field[data-label=\"Monthly cash\"] input", 75000);
   await setInput(page, ".whatif-card .quick-field[data-label=\"Corpus today\"] input", 17500000);
