@@ -578,6 +578,14 @@ try {
   });
   assert(firstTourGeometry.targetSpotlightOverlapRatio > 0.65, `guided tour spotlight is not anchored to active target: ${JSON.stringify(firstTourGeometry)}`);
   assert(firstTourGeometry.cardTargetOverlapRatio < 0.20, `guided tour card covers the thing it teaches: ${JSON.stringify(firstTourGeometry)}`);
+  // Ensure the slow-tier optimizer/MC pass has settled before walking
+  // the tour. While the optimizer is still rendering its strategy panel
+  // and the MC sample card is finalising its caption, the overview's
+  // total height shifts by tens of pixels, which moves trust-center-
+  // hero relative to the spotlight that placeTour computed when step 2
+  // first mounted. Waiting here lets each step's getBoundingClientRect
+  // see a stable layout.
+  await waitForModelIdle(page);
   const tourWalk = await page.evaluate(async () => {
     const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const rect = (selector) => {
