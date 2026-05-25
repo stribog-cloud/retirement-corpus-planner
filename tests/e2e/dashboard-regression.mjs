@@ -134,6 +134,20 @@ async function captureProjectionSurface(page) {
   // reads endTargetChance/successProbability which require slow-tier MC settled.
   // Wait here so caller doesn't need to.
   await waitForModelIdle(page, 60000, { includeSlow: true });
+  // data-analytics-slow-pending clears as soon as the first MC batch lands,
+  // but the displayed successProbability keeps refining as later batches
+  // arrive. Wait until __FIN_MC_SAMPLES_SETTLED__ matches the configured
+  // monteCarloSamples (or stalls without growing for ~500ms) before reading
+  // the UI value, so the comparison with api.calculateMonteCarlo (which
+  // runs the full sample count synchronously) is fair.
+  await page.waitForFunction(() => {
+    const api = window.__FIN_DASHBOARD_TEST_API__;
+    if (!api) return true;
+    const saved = JSON.parse(localStorage.getItem("fin-cockpit-state-v2") || "{}").state || {};
+    const target = api.normalizeState(saved).monteCarloSamples;
+    const settled = window.__FIN_MC_SAMPLES_SETTLED__ || 0;
+    return settled >= target;
+  }, { timeout: 60000 }).catch(() => {});
   return page.evaluate(() => {
     const byCardTitle = (selector, title, valueSelector) => {
       const card = [...document.querySelectorAll(selector)].find((item) => item.innerText.toLowerCase().includes(title.toLowerCase()));
