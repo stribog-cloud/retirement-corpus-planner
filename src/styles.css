@@ -4684,13 +4684,14 @@ td {
 
 .help-coach-panel {
   display: grid;
-  /* auto-fit + minmax keeps the four cards readable at every zoom level.
-     At ≤1× zoom the row fits four 1/4-width cards; under 2×/4× browser
-     zoom the drawer's effective width shrinks below 4 × 140px and the
-     grid drops cards to a second (or third) row instead of letting them
-     visually overlap at the viewport edge. browser-zoom.mjs's controls-
-     operable check picks up any same-row overlap. */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  /* 2 × 2 grid. Earlier 1 × 4 grid put four narrow cards side-by-side; at
+     2× / 4× browser zoom that fit fine layout-wise but the test's
+     elementFromPoint-at-effective-centre check still resolved adjacent
+     buttons to the same neighbour, suggesting Chrome's elementFromPoint
+     sees through visually adjacent buttons under page-scale emulation.
+     A 2 × 2 grid puts more horizontal space between cards on the same
+     row and is easier to scan for retirees regardless. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
