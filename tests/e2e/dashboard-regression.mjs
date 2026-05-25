@@ -373,6 +373,20 @@ async function sustainedTypingAudit(page) {
 }
 
 async function plannerTileLatencyAudit(page) {
+  // Wait for the optimizer-generated strategy cards (positions 2-3) to
+  // render. On slower CI runners (Ubuntu 2-vCPU), waitForModelIdle
+  // returns before the optimizer's secondary render pass finishes
+  // regenerating cards 2 and 3 after value changes — leading the audit
+  // to find only cards 1 and 4 and report cards 2/3 as missing.
+  try {
+    await page.waitForFunction(
+      () => document.querySelectorAll(".strategy-card").length >= 4,
+      { timeout: 5000 }
+    );
+  } catch {
+    // Fall through — existing audit logic will report missing cards
+    // with its descriptive error message if they genuinely never render.
+  }
   return page.evaluate(async () => {
     const nextPaint = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const measure = async (label, selector, verify) => {
