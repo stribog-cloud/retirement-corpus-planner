@@ -54,7 +54,7 @@ import { writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
-const ROOT = "/Users/msambare/Documents/LLM-Projects/Fin-Dashboard";
+const ROOT = process.cwd();
 const DIST = resolve(ROOT, "dist", "app.html");
 
 if (!existsSync(DIST)) {
@@ -63,7 +63,7 @@ if (!existsSync(DIST)) {
 }
 
 const CANDIDATES = [
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/opt/homebrew/bin/chromium",
 ];

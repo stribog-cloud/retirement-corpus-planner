@@ -2834,7 +2834,11 @@ p {
   margin-top: 8px;
   font-family: var(--display);
   font-size: clamp(1.02rem, 1.32vw, 1.42rem);
-  line-height: 0.95;
+  /* Liberation/Noto on Linux render slightly taller than SF/Helvetica on
+     macOS; the 0.95 line-height was clipping glyphs by ~4px on Ubuntu CI
+     (ui-layout-regression catches anything > 3px). 1.05 fits the cap
+     height on both fonts without changing the visual rhythm noticeably. */
+  line-height: 1.05;
   font-weight: 700;
 }
 
@@ -4680,7 +4684,14 @@ td {
 
 .help-coach-panel {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* 2 × 2 grid. Earlier 1 × 4 grid put four narrow cards side-by-side; at
+     2× / 4× browser zoom that fit fine layout-wise but the test's
+     elementFromPoint-at-effective-centre check still resolved adjacent
+     buttons to the same neighbour, suggesting Chrome's elementFromPoint
+     sees through visually adjacent buttons under page-scale emulation.
+     A 2 × 2 grid puts more horizontal space between cards on the same
+     row and is easier to scan for retirees regardless. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
 }

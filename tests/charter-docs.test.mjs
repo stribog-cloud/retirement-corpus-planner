@@ -1,5 +1,14 @@
+import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+
+// Charter control-plane documents live under docs/internal/, which is
+// gitignored. This test suite enforces local audit discipline against
+// those documents. In the public release tree (e.g. fresh clone of the
+// open-source repo), docs/internal/ does not exist and these checks are
+// not applicable — skip the entire suite in that case so public CI
+// stays green while local audit work retains the full gate.
+const hasInternalDocs = existsSync("docs/internal");
 
 const requiredDocs = [
   {
@@ -345,7 +354,7 @@ function functionLineCount(source, name) {
   return null;
 }
 
-describe("Stribog Charter control-plane documents", () => {
+describe.skipIf(!hasInternalDocs)("Stribog Charter control-plane documents", () => {
   it.each(requiredDocs)("keeps $path filed with required markers", async ({ path, markers, publicRelease }) => {
     const content = await readFile(path, "utf8");
     // Public-release-facing docs (post R4.4/R4.5 rewrite) do not carry the

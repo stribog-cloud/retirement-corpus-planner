@@ -1,5 +1,18 @@
 # Retirement Corpus & Income Planner
 
+<!--
+  Badges below depend on the repo being public.
+  - CI:        served from GitHub Actions; 404s for anonymous viewers while
+               the repo is private.
+  - Coverage:  reads a public gist refreshed by ci.yml on push to main.
+               Shows "pending" until the first post-merge main-branch run
+               populates the real percentage.
+  - Release / Downloads / Last Commit: shields.io endpoints reading the
+               GitHub REST API; render "repo not found" while private and
+               recover automatically once the repo flips public.
+  - Node / License: static shields.io badges; render in all states.
+-->
+
 [![CI](https://github.com/stribog-cloud/retirement-corpus-planner/actions/workflows/ci.yml/badge.svg)](https://github.com/stribog-cloud/retirement-corpus-planner/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/msambare/810e83e2fd273e360c77ffc7f12e886e/raw/retirement-corpus-planner-coverage.json)](https://github.com/stribog-cloud/retirement-corpus-planner/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/stribog-cloud/retirement-corpus-planner)](https://github.com/stribog-cloud/retirement-corpus-planner/releases/latest)

@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import puppeteer from "puppeteer-core";
 
-export const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+export const CHROME = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 export const ROOT = process.cwd();
 
 const mime = {

@@ -33,11 +33,20 @@ const here = fileURLToPath(import.meta.url);
 const root = resolve(here, "../..");
 
 const [, , timeoutArg, ...nodeArgs] = process.argv;
-const timeoutSec = Number(timeoutArg);
-if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) {
+const rawTimeoutSec = Number(timeoutArg);
+if (!Number.isFinite(rawTimeoutSec) || rawTimeoutSec <= 0) {
   process.stderr.write(`usage: node ${here} <timeoutSec> <node-args...>\n`);
   process.exit(2);
 }
+// Per-test budgets were calibrated on a macOS M3 Ultra dev box. CI
+// runners (Ubuntu 2-vCPU) execute the same scripts ~1.5–2x slower
+// because of per-keystroke waitForModelIdle compounding across the
+// ~60 setInput/setSelect calls in dashboard-regression. Honor the
+// dev-box budget locally; multiply under CI so a genuine slowdown
+// still trips the limit (a 3x regression in script runtime would
+// still SIGKILL the process tree).
+const CI_BUDGET_MULTIPLIER = process.env.CI ? 2 : 1;
+const timeoutSec = Math.ceil(rawTimeoutSec * CI_BUDGET_MULTIPLIER);
 if (nodeArgs.length === 0) {
   process.stderr.write(`usage: node ${here} <timeoutSec> <node-args...>\n`);
   process.exit(2);

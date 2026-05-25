@@ -4,7 +4,7 @@ import { extname, join } from "node:path";
 import { withBrowser } from "./_browser-helper.mjs";
 
 const root = process.cwd();
-const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const mime = {
   ".html": "text/html;charset=utf-8",
   ".js": "text/javascript;charset=utf-8",
@@ -58,12 +58,19 @@ async function auditViewport(page, viewport, view = "overview") {
     await new Promise((resolve) => setTimeout(resolve, 180));
     // R4.9.5c: optimizer cards depend on optimum.strategies populated by
     // slow-tier MC. At N=1000 in headless Chrome the slow tier takes much
-    // longer than the 180 ms post-nav grace period. Wait for slow tier idle.
+    // longer than the 180 ms post-nav grace period. Wait for slow tier idle
+    // AND for all four strategy cards to be present in the DOM (the slow-
+    // tier flag clears once the model emits its first slow-tier snapshot;
+    // strategy panel re-renders on a subsequent React pass).
     if (view === "planner") {
       await page.waitForFunction(() => {
         const stack = document.querySelector(".main-stack");
         return stack && stack.dataset.analyticsSlowPending !== "true";
       }, { timeout: 60000 }).catch(() => {});
+      await page.waitForFunction(
+        () => document.querySelectorAll("#optimizer .strategy-card").length >= 4,
+        { timeout: 10000 }
+      ).catch(() => {});
     }
   }
 
@@ -501,7 +508,7 @@ try {
   await page.waitForSelector(".guided-tour .tour-card", { timeout: 10000 });
   const tourAudits = [];
   for (let stepIndex = 0; stepIndex < 7; stepIndex += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     const audit = await page.evaluate((expectedStep) => {
       const rectFor = (element) => {
         const rect = element.getBoundingClientRect();

@@ -35,7 +35,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// Chrome executable path:
+//   1. PUPPETEER_EXECUTABLE_PATH env var (CI sets this from
+//      browser-actions/setup-chrome's output → /opt/hostedtoolcache/...)
+//   2. Default to the standard macOS Chrome path (local dev on Mac Studio).
+// This makes the same helper work on macOS audit machines and on
+// ubuntu-latest GitHub Actions runners without per-environment branches.
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH
+  || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PROFILE_PREFIX = "puppeteer_dev_chrome_profile-";
 
 // Track all active browsers + profile dirs for forced shutdown.
@@ -84,6 +91,16 @@ export async function withBrowser(launchOpts, testFn) {
   const args = [
     "--no-sandbox",
     "--disable-gpu",
+    // Rendering-stability flags (R4.10 fin-1ci, public-CI Ubuntu parity):
+    // these neutralize OS-level rendering differences between macOS Mac
+    // Studio (audit baseline) and ubuntu-latest GitHub Actions runners.
+    "--font-render-hinting=none",           // consistent text antialiasing
+    "--force-device-scale-factor=1",         // no retina/HiDPI surprises
+    "--hide-scrollbars",                     // scrollbars shift layout width
+    "--disable-features=Translate",          // no auto-translate overlays
+    "--lang=en-US",                          // explicit locale
+    "--no-first-run",                        // suppress first-run UI
+    "--disable-blink-features=AutomationControlled",
     `--user-data-dir=${profileDir}`,
     ...(launchOpts.args || [])
   ];
@@ -91,6 +108,15 @@ export async function withBrowser(launchOpts, testFn) {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: "new",
+    // Default viewport: 1440×900 is the standard desktop dimensions
+    // (matches most modern laptops and matches the audit baseline closely
+    // enough that the overview page's vertical tour targets — trust
+    // center hero, whatif card — fit on-screen without requiring mid-
+    // tour scroll-into-view. 1280×800 was tried first but its 800px
+    // height was too tight for steps 2-3 of the guided tour: card
+    // bottom-clearance dropped to ~82px and the target dropped below
+    // the fold, breaking the spotlight overlap assertion).
+    defaultViewport: { width: 1440, height: 900, deviceScaleFactor: 1 },
     ...launchOpts,
     args
   });

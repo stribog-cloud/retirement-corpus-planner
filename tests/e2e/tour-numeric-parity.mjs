@@ -32,7 +32,7 @@ import { extname, join } from "node:path";
 import { withBrowser } from "./_browser-helper.mjs";
 
 const root = process.cwd();
-const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const mime = {
   ".html": "text/html;charset=utf-8",
   ".js":   "text/javascript;charset=utf-8",
@@ -201,6 +201,19 @@ try {
   const MAX_STEPS = 10;
 
   while (stepCount < MAX_STEPS) {
+    // Wait for placeTour (300ms timer + rAF×2 in GuidedTour) to have
+    // committed the spotlight + tour-highlight for the current step
+    // before snapshotting. The earlier sleep(200) was tight on slow
+    // CI hosts and could read the previous step's stale highlight.
+    await pageDesktop.waitForFunction(
+      () => {
+        const tour = document.querySelector(".guided-tour");
+        if (!tour) return true; // tour closed, loop will break below
+        const h = document.querySelector(".tour-highlight");
+        return Boolean(h && h.getBoundingClientRect().width > 0);
+      },
+      { timeout: 5000 }
+    ).catch(() => {});
     const stepData = await pageDesktop.evaluate(() => {
       const tour = document.querySelector(".guided-tour");
       if (!tour) return null;
@@ -396,6 +409,15 @@ try {
   const viewport390 = { width: 390, height: 844 };
 
   while (mobileStepCount < MOBILE_MAX_STEPS) {
+    await pageMobile.waitForFunction(
+      () => {
+        const tour = document.querySelector(".guided-tour");
+        if (!tour) return true;
+        const h = document.querySelector(".tour-highlight");
+        return Boolean(h && h.getBoundingClientRect().width > 0);
+      },
+      { timeout: 5000 }
+    ).catch(() => {});
     const stepData = await pageMobile.evaluate((vp) => {
       const tour = document.querySelector(".guided-tour");
       if (!tour) return null;

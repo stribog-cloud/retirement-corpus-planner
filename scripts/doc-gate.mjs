@@ -1,5 +1,17 @@
+import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
+
+// The Stribog charter doc-gate validates internal control-plane documents
+// under docs/internal/. That directory is gitignored, so in the public
+// release tree it does not exist. Skip the gate cleanly in that case —
+// public CI does not need to enforce internal-audit doc invariants.
+if (!existsSync("docs/internal")) {
+  console.log(
+    "[doc-gate] docs/internal not present — skipping (public release tree, internal docs are not tracked)."
+  );
+  process.exit(0);
+}
 
 const required = [
   "AGENTS.md",

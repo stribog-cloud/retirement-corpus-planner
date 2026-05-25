@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run unit tests with coverage
-        run: npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=v8
+        run: npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
       - name: Extract coverage percentage
         id: coverage
         run: |
@@ -88,6 +88,7 @@ jobs:
           name: dist
           path: |
             dist/
+            index.html
             Retirement Corpus & Income Planner.html
           retention-days: 7
 
@@ -114,7 +115,7 @@ jobs:
     name: Test E2E
     runs-on: ubuntu-latest
     needs: build
-    timeout-minutes: 45
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -123,7 +124,26 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Install fonts for consistent rendering
+        # macOS audit baseline uses SF Pro / Helvetica family. Without these
+        # on Ubuntu, Chromium falls back to DejaVu which has different metrics
+        # — elements shift by a few pixels and break pixel-precise tour /
+        # spotlight assertions. Liberation Sans is the open-source Helvetica
+        # metric-compatible clone; Noto covers Unicode + emoji; DejaVu is the
+        # broad fallback.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            fonts-liberation \
+            fonts-liberation2 \
+            fonts-noto \
+            fonts-noto-color-emoji \
+            fonts-noto-mono \
+            fonts-dejavu-core \
+            fonts-lato
+          fc-cache -fv >/dev/null
       - name: Install Chrome for Puppeteer
+        id: setup-chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
@@ -186,6 +206,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # By default on pull_request events, actions/checkout checks out a
+          # synthetic merge ref (refs/pull/N/merge) whose HEAD is a merge
+          # commit GitHub auto-generates. That commit has no Co-authored-by
+          # trailer (no human ever wrote it), so trailer-check would always
+          # fail on PRs. Checkout the actual PR head commit instead.
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -193,5 +219,9 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Fetch base branch (so origin/<base_ref> resolves)
+        run: git fetch --no-tags --depth=50 origin "${{ github.base_ref }}"
       - name: Verify Co-authored-by trailers on PR commits
-        run: npm run trailer:check
+        # HEAD is now the PR head commit (not a merge ref). The range
+        # origin/<base_ref>..HEAD is exactly the PR's commits.
+        run: node scripts/precommit-trailer-check.mjs --range "origin/${{ github.base_ref }}..HEAD"

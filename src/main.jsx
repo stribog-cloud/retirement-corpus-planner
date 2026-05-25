@@ -792,27 +792,39 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
       setSpotlight(null);
       return undefined;
     }
-    const previousOverflow = document.documentElement.style.overflow;
     const previousScrollBehavior = document.documentElement.style.scrollBehavior;
-    document.documentElement.style.overflow = "hidden";
     document.documentElement.style.scrollBehavior = "auto";
     let cancelled = false;
     const placeTour = () => {
-      const target = tourTarget(active.selector);
+      const initialTarget = tourTarget(active.selector);
       clearTourHighlights();
-      if (!target) {
+      if (!initialTarget) {
         setSpotlight(null);
         return;
       }
       const isMobile = window.innerWidth < 680;
-      target.scrollIntoView({ behavior: "auto", block: isMobile ? "center" : active.scrollBlock || "center", inline: "nearest" });
+      // Don't lock html overflow during the tour. Setting overflow:hidden
+      // on documentElement snaps scrollTop back to 0 on Chromium Linux
+      // (Ubuntu CI), undoing the scrollIntoView below and leaving the
+      // spotlight stranded against the viewport edge. The spotlight and
+      // tour card are both position:fixed so they don't move when the
+      // user scrolls the underlying page — losing the scroll lock costs
+      // a small UX nicety but no correctness.
+      initialTarget.scrollIntoView({ behavior: "auto", block: isMobile ? "center" : active.scrollBlock || "center", inline: "nearest" });
       if (isMobile) {
-        const firstRect = target.getBoundingClientRect();
+        const firstRect = initialTarget.getBoundingClientRect();
         const desiredTop = Math.round(window.innerHeight * 0.44);
         window.scrollBy({ top: firstRect.top - desiredTop, left: 0, behavior: "auto" });
       }
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         if (cancelled) return;
+        // Re-query the target inside the rAF chain. On views that re-
+        // render after the initial mount (e.g. the planner view's
+        // optimizer pass completing on the slow tier), React can swap
+        // out the DOM node between this effect's setup and the rAF
+        // measurement frame, leaving the captured initialTarget
+        // detached and its getBoundingClientRect stale.
+        const target = tourTarget(active.selector) || initialTarget;
         const rect = target.getBoundingClientRect();
         const margin = isMobile ? 8 : 14;
         const left = clamp(rect.left - margin, 10, window.innerWidth - 60);
@@ -843,16 +855,34 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
         });
       }));
     };
-    const timer = window.setTimeout(placeTour, 90);
+    // Defer placeTour long enough for React to commit the new step's DOM
+    // and the view-switch (if any) to settle. 90ms was tight on slow
+    // hosts — Ubuntu CI saw intermittent step-2 spotlight drift because
+    // placeTour fired before the optimizer pass that followed the
+    // initial mount had finished shifting layout below the fold. 300ms
+    // is still imperceptible to a user but covers the slow-host case.
+    const timer = window.setTimeout(placeTour, 300);
     window.addEventListener("resize", placeTour);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
       window.removeEventListener("resize", placeTour);
-      document.documentElement.style.overflow = previousOverflow;
       document.documentElement.style.scrollBehavior = previousScrollBehavior;
     };
   }, [open, active?.selector]);
+  // Re-apply .tour-highlight after every render. The main placeTour
+  // effect only re-runs when active.selector changes; if the parent
+  // view re-renders (e.g. the planner's optimizer pass finishing and
+  // re-mounting wizard-grid) between step transitions, the class is
+  // lost from the newly-mounted node. This effect is cheap and idempotent.
+  useLayoutEffect(() => {
+    if (!open || !active?.selector || !spotlight) return;
+    const target = tourTarget(active.selector);
+    if (target && !target.classList.contains("tour-highlight")) {
+      [...document.getElementsByClassName("tour-highlight")].forEach((el) => el.classList.remove("tour-highlight"));
+      target.classList.add("tour-highlight");
+    }
+  });
   if (!open) return null;
   const go = (nextStep) => {
     const bounded = clamp(nextStep, 0, TOUR_STEPS.length - 1);

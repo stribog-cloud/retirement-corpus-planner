@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
@@ -68,10 +69,13 @@ for (const sourceFile of sourceFiles) {
   }
 }
 
-const annex = await readFile("docs/internal/CHARTER-COMPLIANCE-ANNEX.md", "utf8");
-for (const command of ["make format", "make lint", "make static", "make coverage", "make test-a11y", "make ui-tokens", "make ui-contrast", "make ui-perf", "make doc-gate", "make docs-screenshots", "make artifact-check", "make secrets", "make vulnerability", "make build", "make all"]) {
-  if (!annex.includes(command)) {
-    failures.push(`Charter annex does not document ${command}`);
+const annexPath = "docs/internal/CHARTER-COMPLIANCE-ANNEX.md";
+if (existsSync(annexPath)) {
+  const annex = await readFile(annexPath, "utf8");
+  for (const command of ["make format", "make lint", "make static", "make coverage", "make test-a11y", "make ui-tokens", "make ui-contrast", "make ui-perf", "make doc-gate", "make docs-screenshots", "make artifact-check", "make secrets", "make vulnerability", "make build", "make all"]) {
+    if (!annex.includes(command)) {
+      failures.push(`Charter annex does not document ${command}`);
+    }
   }
 }
 
@@ -126,31 +130,34 @@ if (main.includes("window.__FIN_DASHBOARD_TEST_API__") && (!main.includes("finTe
 }
 
 const css = await readFile("src/styles.css", "utf8");
-const cssDuplicateExceptions = await readFile("docs/internal/CSS-DUPLICATE-SELECTOR-EXCEPTIONS.md", "utf8");
-const cssSelectorOccurrences = new Map();
-let cssContext = "root";
-for (const rawLine of css.replace(/\/\*[\s\S]*?\*\//g, "").split("\n")) {
-  const line = rawLine.trim();
-  if (!line) continue;
-  if (line.startsWith("@media") || line.startsWith("@supports")) {
-    cssContext = line.replace(/\s*\{\s*$/, "");
-    continue;
+const cssExceptionsPath = "docs/internal/CSS-DUPLICATE-SELECTOR-EXCEPTIONS.md";
+if (existsSync(cssExceptionsPath)) {
+  const cssDuplicateExceptions = await readFile(cssExceptionsPath, "utf8");
+  const cssSelectorOccurrences = new Map();
+  let cssContext = "root";
+  for (const rawLine of css.replace(/\/\*[\s\S]*?\*\//g, "").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("@media") || line.startsWith("@supports")) {
+      cssContext = line.replace(/\s*\{\s*$/, "");
+      continue;
+    }
+    if (line === "}") {
+      cssContext = "root";
+      continue;
+    }
+    if (!line.endsWith("{") || line.startsWith("@") || line.includes(": ")) continue;
+    const selectors = line.slice(0, -1).split(",").map((item) => item.trim()).filter(Boolean);
+    for (const selector of selectors) {
+      const key = `${cssContext}::${selector}`;
+      cssSelectorOccurrences.set(key, (cssSelectorOccurrences.get(key) || 0) + 1);
+    }
   }
-  if (line === "}") {
-    cssContext = "root";
-    continue;
+  const duplicateSelectors = [...cssSelectorOccurrences.entries()].filter(([, count]) => count > 1);
+  const undocumentedDuplicateSelectors = duplicateSelectors.filter(([key, count]) => !cssDuplicateExceptions.includes(`\`${key} x${count}\``));
+  if (undocumentedDuplicateSelectors.length) {
+    failures.push(`src/styles.css has undocumented duplicate selectors: ${undocumentedDuplicateSelectors.map(([key, count]) => `${key} x${count}`).slice(0, 12).join("; ")}`);
   }
-  if (!line.endsWith("{") || line.startsWith("@") || line.includes(": ")) continue;
-  const selectors = line.slice(0, -1).split(",").map((item) => item.trim()).filter(Boolean);
-  for (const selector of selectors) {
-    const key = `${cssContext}::${selector}`;
-    cssSelectorOccurrences.set(key, (cssSelectorOccurrences.get(key) || 0) + 1);
-  }
-}
-const duplicateSelectors = [...cssSelectorOccurrences.entries()].filter(([, count]) => count > 1);
-const undocumentedDuplicateSelectors = duplicateSelectors.filter(([key, count]) => !cssDuplicateExceptions.includes(`\`${key} x${count}\``));
-if (undocumentedDuplicateSelectors.length) {
-  failures.push(`src/styles.css has undocumented duplicate selectors: ${undocumentedDuplicateSelectors.map(([key, count]) => `${key} x${count}`).slice(0, 12).join("; ")}`);
 }
 
 for (const file of [
