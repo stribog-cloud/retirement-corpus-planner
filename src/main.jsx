@@ -855,7 +855,13 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
         });
       }));
     };
-    const timer = window.setTimeout(placeTour, 90);
+    // Defer placeTour long enough for React to commit the new step's DOM
+    // and the view-switch (if any) to settle. 90ms was tight on slow
+    // hosts — Ubuntu CI saw intermittent step-2 spotlight drift because
+    // placeTour fired before the optimizer pass that followed the
+    // initial mount had finished shifting layout below the fold. 300ms
+    // is still imperceptible to a user but covers the slow-host case.
+    const timer = window.setTimeout(placeTour, 300);
     window.addEventListener("resize", placeTour);
     return () => {
       cancelled = true;
