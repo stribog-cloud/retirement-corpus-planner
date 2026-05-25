@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
@@ -68,10 +69,13 @@ for (const sourceFile of sourceFiles) {
   }
 }
 
-const annex = await readFile("docs/internal/CHARTER-COMPLIANCE-ANNEX.md", "utf8");
-for (const command of ["make format", "make lint", "make static", "make coverage", "make test-a11y", "make ui-tokens", "make ui-contrast", "make ui-perf", "make doc-gate", "make docs-screenshots", "make artifact-check", "make secrets", "make vulnerability", "make build", "make all"]) {
-  if (!annex.includes(command)) {
-    failures.push(`Charter annex does not document ${command}`);
+const annexPath = "docs/internal/CHARTER-COMPLIANCE-ANNEX.md";
+if (existsSync(annexPath)) {
+  const annex = await readFile(annexPath, "utf8");
+  for (const command of ["make format", "make lint", "make static", "make coverage", "make test-a11y", "make ui-tokens", "make ui-contrast", "make ui-perf", "make doc-gate", "make docs-screenshots", "make artifact-check", "make secrets", "make vulnerability", "make build", "make all"]) {
+    if (!annex.includes(command)) {
+      failures.push(`Charter annex does not document ${command}`);
+    }
   }
 }
 
@@ -126,7 +130,10 @@ if (main.includes("window.__FIN_DASHBOARD_TEST_API__") && (!main.includes("finTe
 }
 
 const css = await readFile("src/styles.css", "utf8");
-const cssDuplicateExceptions = await readFile("docs/internal/CSS-DUPLICATE-SELECTOR-EXCEPTIONS.md", "utf8");
+const cssExceptionsPath = "docs/internal/CSS-DUPLICATE-SELECTOR-EXCEPTIONS.md";
+const cssDuplicateExceptions = existsSync(cssExceptionsPath)
+  ? await readFile(cssExceptionsPath, "utf8")
+  : "";
 const cssSelectorOccurrences = new Map();
 let cssContext = "root";
 for (const rawLine of css.replace(/\/\*[\s\S]*?\*\//g, "").split("\n")) {

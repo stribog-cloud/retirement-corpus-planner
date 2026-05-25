@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { gzipSync } from "node:zlib";
@@ -77,6 +78,16 @@ const nextManifest = {
 if (process.argv.includes("--write")) {
   await writeFile(manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`);
   console.log(JSON.stringify({ ok: true, wrote: manifestPath, artifacts: artifacts.length }, null, 2));
+} else if (!existsSync(manifestPath)) {
+  // Public release tree: the internal manifest is gitignored and not
+  // present. Artifact size, gzip, and equality budgets have already been
+  // validated above. Skip the saved-manifest comparison gracefully.
+  console.log(JSON.stringify({
+    ok: true,
+    checked: "artifact-integrity (manifest comparison skipped — public release tree)",
+    bytes: artifacts[0].bytes,
+    gzipBytes: artifacts[0].gzipBytes
+  }, null, 2));
 } else {
   const saved = JSON.parse(await readFile(manifestPath, "utf8"));
   assert(/\d{4}-\d{2}-\d{2}/.test(saved.last_updated || ""), "artifact manifest last_updated must be an ISO date");

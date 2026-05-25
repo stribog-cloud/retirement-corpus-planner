@@ -44,3 +44,16 @@ regexes = [
   # Co-authored-by trailers reference the Anthropic noreply address; not a secret.
   '''Co-authored-by:.*noreply@anthropic\.com''',
 ]
+
+# Stopwords match on the SECRET VALUE itself, not the surrounding line.
+# Use these for legitimate application constants that look high-entropy
+# to gitleaks' generic-api-key heuristic but are public-by-design app
+# identifiers (localStorage keys, feature flag names, etc.).
+stopwords = [
+  # Public localStorage key for the privacy-consent banner. Documented
+  # publicly in PRIVACY.md as part of the browser-storage inventory.
+  '''fin-cockpit-privacy-consent-v1''',
+  # Public localStorage key for the disclaimer-acknowledgement state.
+  # Documented in PRIVACY.md and used in src/persistence.js + tests.
+  '''disclaimer_acknowledged_v1''',
+]
