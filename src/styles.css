@@ -2834,7 +2834,11 @@ p {
   margin-top: 8px;
   font-family: var(--display);
   font-size: clamp(1.02rem, 1.32vw, 1.42rem);
-  line-height: 0.95;
+  /* Liberation/Noto on Linux render slightly taller than SF/Helvetica on
+     macOS; the 0.95 line-height was clipping glyphs by ~4px on Ubuntu CI
+     (ui-layout-regression catches anything > 3px). 1.05 fits the cap
+     height on both fonts without changing the visual rhythm noticeably. */
+  line-height: 1.05;
   font-weight: 700;
 }
 
