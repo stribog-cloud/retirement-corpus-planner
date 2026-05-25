@@ -804,12 +804,13 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
         return;
       }
       const isMobile = window.innerWidth < 680;
-      // Unlock overflow before scrolling. Applying overflow:hidden first
-      // prevents scrollIntoView from moving the document, which left the
-      // spotlight clamped to the viewport edge when the target sat below
-      // the fold on taller-rendering hosts (observed on Ubuntu CI where
-      // font metrics make the overview page longer than on macOS dev
-      // boxes). Re-lock after the scroll completes.
+      // Keep overflow unlocked through the scroll AND the rAF measurement
+      // chain — re-applying overflow:hidden mid-frame snaps scrollTop back
+      // to 0 on Chromium Linux (Ubuntu CI), leaving the just-scrolled
+      // target back off-viewport and the spotlight clamped against the
+      // viewport edge. The lock is re-applied at the end of the rAF
+      // chain, after target.getBoundingClientRect has captured the post-
+      // scroll position.
       document.documentElement.style.overflow = previousOverflow;
       target.scrollIntoView({ behavior: "auto", block: isMobile ? "center" : active.scrollBlock || "center", inline: "nearest" });
       if (isMobile) {
@@ -817,7 +818,6 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
         const desiredTop = Math.round(window.innerHeight * 0.44);
         window.scrollBy({ top: firstRect.top - desiredTop, left: 0, behavior: "auto" });
       }
-      document.documentElement.style.overflow = "hidden";
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         if (cancelled) return;
         const rect = target.getBoundingClientRect();
@@ -848,6 +848,9 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
           cardWidth,
           placement: placement.placement
         });
+        // Re-apply the user-scroll lock only after the spotlight is in
+        // place. See the comment above the scrollIntoView call.
+        document.documentElement.style.overflow = "hidden";
       }));
     };
     const timer = window.setTimeout(placeTour, 90);
