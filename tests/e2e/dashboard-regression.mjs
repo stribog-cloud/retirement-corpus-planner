@@ -578,7 +578,7 @@ try {
   });
   assert(firstTourGeometry.targetSpotlightOverlapRatio > 0.65, `guided tour spotlight is not anchored to active target: ${JSON.stringify(firstTourGeometry)}`);
   assert(firstTourGeometry.cardTargetOverlapRatio < 0.20, `guided tour card covers the thing it teaches: ${JSON.stringify(firstTourGeometry)}`);
-  const tourWalk = await page.evaluate(async () => {
+  const tourWalk = await page.evaluate(async (stepSettleMs) => {
     const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const rect = (selector) => {
       const element = document.querySelector(selector);
@@ -592,10 +592,31 @@ try {
       const y = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
       return x * y;
     };
+    // After a step advance, scroll-into-view and spotlight reposition race
+    // each other on the slower CI runner — the spotlight box can be read
+    // mid-transition when its target rect hasn't yet been remeasured. Poll
+    // until the target/spotlight overlap settles for two consecutive
+    // frames before snapshotting (capped at ~stepSettleMs to avoid
+    // hanging on a genuinely broken step).
+    const waitForSpotlightSettle = async (budgetMs) => {
+      const deadline = performance.now() + budgetMs;
+      let prev = -1;
+      while (performance.now() < deadline) {
+        const target = rect(".tour-highlight");
+        const spot = rect(".tour-spotlight");
+        const targetArea = Math.max(1, (target?.width || 0) * (target?.height || 0));
+        const overlap = areaOverlap(target, spot) / targetArea;
+        if (overlap >= 0.65 && Math.abs(overlap - prev) < 0.005) return overlap;
+        prev = overlap;
+        await nextFrame();
+      }
+      return prev;
+    };
     const visited = [];
     for (let guard = 0; guard < 8; guard++) {
       const tour = document.querySelector(".guided-tour");
       if (!tour) break;
+      await waitForSpotlightSettle(stepSettleMs);
       const highlighted = document.querySelector(".tour-highlight");
       const spotlight = document.querySelector(".tour-spotlight");
       const card = rect(".tour-card");
@@ -622,7 +643,7 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 600));
     }
     return { visited, closed: !document.querySelector(".guided-tour") };
-  });
+  }, process.env.CI ? 2000 : 800);
   assert(tourWalk.visited.length >= 5, `guided tour did not walk enough steps: ${JSON.stringify(tourWalk)}`);
   assert(tourWalk.closed, `guided tour did not close on final step: ${JSON.stringify(tourWalk)}`);
   assert(new Set(tourWalk.visited.map((step) => step.activeView)).size >= 3, `guided tour did not switch product pages: ${JSON.stringify(tourWalk)}`);
