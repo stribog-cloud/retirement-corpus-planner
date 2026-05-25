@@ -108,11 +108,15 @@ export async function withBrowser(launchOpts, testFn) {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: "new",
-    // Default viewport matches canonical-numeric-parity.mjs's explicit
-    // setting — gives desktop apps room to lay out without wrap-driven
-    // shifts. Tests that need a different viewport override via launchOpts
-    // or call page.setViewport() themselves.
-    defaultViewport: { width: 1280, height: 800, deviceScaleFactor: 1 },
+    // Default viewport: 1440×900 is the standard desktop dimensions
+    // (matches most modern laptops and matches the audit baseline closely
+    // enough that the overview page's vertical tour targets — trust
+    // center hero, whatif card — fit on-screen without requiring mid-
+    // tour scroll-into-view. 1280×800 was tried first but its 800px
+    // height was too tight for steps 2-3 of the guided tour: card
+    // bottom-clearance dropped to ~82px and the target dropped below
+    // the fold, breaking the spotlight overlap assertion).
+    defaultViewport: { width: 1440, height: 900, deviceScaleFactor: 1 },
     ...launchOpts,
     args
   });
