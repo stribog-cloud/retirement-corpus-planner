@@ -794,7 +794,6 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
     }
     const previousOverflow = document.documentElement.style.overflow;
     const previousScrollBehavior = document.documentElement.style.scrollBehavior;
-    document.documentElement.style.overflow = "hidden";
     document.documentElement.style.scrollBehavior = "auto";
     let cancelled = false;
     const placeTour = () => {
@@ -805,12 +804,20 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
         return;
       }
       const isMobile = window.innerWidth < 680;
+      // Unlock overflow before scrolling. Applying overflow:hidden first
+      // prevents scrollIntoView from moving the document, which left the
+      // spotlight clamped to the viewport edge when the target sat below
+      // the fold on taller-rendering hosts (observed on Ubuntu CI where
+      // font metrics make the overview page longer than on macOS dev
+      // boxes). Re-lock after the scroll completes.
+      document.documentElement.style.overflow = previousOverflow;
       target.scrollIntoView({ behavior: "auto", block: isMobile ? "center" : active.scrollBlock || "center", inline: "nearest" });
       if (isMobile) {
         const firstRect = target.getBoundingClientRect();
         const desiredTop = Math.round(window.innerHeight * 0.44);
         window.scrollBy({ top: firstRect.top - desiredTop, left: 0, behavior: "auto" });
       }
+      document.documentElement.style.overflow = "hidden";
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         if (cancelled) return;
         const rect = target.getBoundingClientRect();
