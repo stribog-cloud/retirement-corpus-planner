@@ -124,6 +124,24 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Install fonts for consistent rendering
+        # macOS audit baseline uses SF Pro / Helvetica family. Without these
+        # on Ubuntu, Chromium falls back to DejaVu which has different metrics
+        # — elements shift by a few pixels and break pixel-precise tour /
+        # spotlight assertions. Liberation Sans is the open-source Helvetica
+        # metric-compatible clone; Noto covers Unicode + emoji; DejaVu is the
+        # broad fallback.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            fonts-liberation \
+            fonts-liberation2 \
+            fonts-noto \
+            fonts-noto-color-emoji \
+            fonts-noto-mono \
+            fonts-dejavu-core \
+            fonts-lato
+          fc-cache -fv >/dev/null
       - name: Install Chrome for Puppeteer
         id: setup-chrome
         uses: browser-actions/setup-chrome@v1

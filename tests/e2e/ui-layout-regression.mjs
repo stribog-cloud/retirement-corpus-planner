@@ -501,7 +501,7 @@ try {
   await page.waitForSelector(".guided-tour .tour-card", { timeout: 10000 });
   const tourAudits = [];
   for (let stepIndex = 0; stepIndex < 7; stepIndex += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     const audit = await page.evaluate((expectedStep) => {
       const rectFor = (element) => {
         const rect = element.getBoundingClientRect();

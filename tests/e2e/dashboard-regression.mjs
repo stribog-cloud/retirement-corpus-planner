@@ -94,7 +94,7 @@ async function setInput(page, selector, value, { includeSlow = false } = {}) {
     el.dispatchEvent(new Event("change", { bubbles: true }));
     el.blur();
 	  }, value);
-  await new Promise((resolve) => setTimeout(resolve, 220));
+  await new Promise((resolve) => setTimeout(resolve, 600));
 	  await waitForModelIdle(page, 60000, { includeSlow });
 }
 
@@ -105,7 +105,7 @@ async function setSelect(page, selector, value, { includeSlow = false } = {}) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
 	  }, value);
-  await new Promise((resolve) => setTimeout(resolve, 220));
+  await new Promise((resolve) => setTimeout(resolve, 600));
 	  await waitForModelIdle(page, 60000, { includeSlow });
 }
 
@@ -591,7 +591,7 @@ try {
       const primary = [...tour.querySelectorAll(".tour-actions button")].find((button) => /next|start planning/i.test(button.textContent || ""));
       primary?.click();
       await nextFrame();
-      await new Promise((resolve) => setTimeout(resolve, 220));
+      await new Promise((resolve) => setTimeout(resolve, 600));
     }
     return { visited, closed: !document.querySelector(".guided-tour") };
   });

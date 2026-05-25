@@ -91,6 +91,16 @@ export async function withBrowser(launchOpts, testFn) {
   const args = [
     "--no-sandbox",
     "--disable-gpu",
+    // Rendering-stability flags (R4.10 fin-1ci, public-CI Ubuntu parity):
+    // these neutralize OS-level rendering differences between macOS Mac
+    // Studio (audit baseline) and ubuntu-latest GitHub Actions runners.
+    "--font-render-hinting=none",           // consistent text antialiasing
+    "--force-device-scale-factor=1",         // no retina/HiDPI surprises
+    "--hide-scrollbars",                     // scrollbars shift layout width
+    "--disable-features=Translate",          // no auto-translate overlays
+    "--lang=en-US",                          // explicit locale
+    "--no-first-run",                        // suppress first-run UI
+    "--disable-blink-features=AutomationControlled",
     `--user-data-dir=${profileDir}`,
     ...(launchOpts.args || [])
   ];
@@ -98,6 +108,11 @@ export async function withBrowser(launchOpts, testFn) {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: "new",
+    // Default viewport matches canonical-numeric-parity.mjs's explicit
+    // setting — gives desktop apps room to lay out without wrap-driven
+    // shifts. Tests that need a different viewport override via launchOpts
+    // or call page.setViewport() themselves.
+    defaultViewport: { width: 1280, height: 800, deviceScaleFactor: 1 },
     ...launchOpts,
     args
   });
