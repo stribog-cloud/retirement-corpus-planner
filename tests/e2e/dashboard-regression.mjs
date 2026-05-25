@@ -46,12 +46,14 @@ async function waitForModelIdle(page, timeout = 60000, { includeSlow = true } = 
   // that don't assert MC values — at N=1000 (R4.9.5a default) headless Chrome's Worker is
   // structurally slower than production Chrome (production settle ~3.9s per Hilbert
   // R4.9.5b watchlist; headless can exceed test budgets).
-  // CI: Ubuntu 2-vCPU runners can take 120-200s for slow-tier MC convergence
-  // after a 12-input household-plan edit sequence backs up the slow tier —
-  // bump the slow-tier ceiling so legitimate convergence still has room
-  // while fast-tier waits stay strict.
-  const effectiveTimeout = (process.env.CI && includeSlow && timeout < 240000)
-    ? 240000
+  // CI: Ubuntu 2-vCPU runners need plenty of room for slow-tier MC
+  // convergence after a multi-step assumption-drawer edit sequence (the
+  // household-plan block queues ~25 fast-tier setInput/setSelect calls
+  // that the slow tier has to drain serially). Production-Chrome settles
+  // in ~4s; 2-vCPU headless can stretch to 5-6x that per sample on a
+  // complex SWP+household state, so the ceiling targets 360s.
+  const effectiveTimeout = (process.env.CI && includeSlow && timeout < 360000)
+    ? 360000
     : timeout;
   await page.waitForFunction((checkSlow) => {
     const stack = document.querySelector(".main-stack");
