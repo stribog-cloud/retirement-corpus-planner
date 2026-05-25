@@ -44,7 +44,7 @@ import { extname, join } from "node:path";
 import { withBrowser } from "./_browser-helper.mjs";
 
 const root = process.cwd();
-const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const mime = {
   ".html": "text/html;charset=utf-8",
   ".js":   "text/javascript;charset=utf-8",

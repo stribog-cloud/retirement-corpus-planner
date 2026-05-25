@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 import puppeteer from "puppeteer-core";
 
 const root = process.cwd();
-const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const rawBudget = 2_800_000;
 const gzipBudget = 900_000;
 const inputToPaintBudget = 180;

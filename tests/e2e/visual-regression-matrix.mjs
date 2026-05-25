@@ -47,7 +47,7 @@ const fastPng = require("fast-png");
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = process.cwd();
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const SNAPSHOT_DIR = join(root, "tests/e2e/__snapshots__/visual-regression-matrix");
 const VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 1 };
 

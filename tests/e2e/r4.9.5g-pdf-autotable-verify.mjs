@@ -35,7 +35,7 @@ if (!existsSync(DIST)) {
 }
 
 const CANDIDATES = [
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/opt/homebrew/bin/chromium",
 ];

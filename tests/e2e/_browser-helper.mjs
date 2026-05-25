@@ -35,7 +35,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// Chrome executable path:
+//   1. PUPPETEER_EXECUTABLE_PATH env var (CI sets this from
+//      browser-actions/setup-chrome's output → /opt/hostedtoolcache/...)
+//   2. Default to the standard macOS Chrome path (local dev on Mac Studio).
+// This makes the same helper work on macOS audit machines and on
+// ubuntu-latest GitHub Actions runners without per-environment branches.
+const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH
+  || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PROFILE_PREFIX = "puppeteer_dev_chrome_profile-";
 
 // Track all active browsers + profile dirs for forced shutdown.

@@ -40,7 +40,7 @@ import { extname, join } from "node:path";
 import { withBrowser } from "./_browser-helper.mjs";
 
 const root = process.cwd();
-const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const downloadDir = "/tmp/fin-dashboard-export-parity";
 const mime = {
   ".html": "text/html;charset=utf-8",

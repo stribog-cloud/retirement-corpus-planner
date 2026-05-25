@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run unit tests with coverage
-        run: npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=v8
+        run: npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
       - name: Extract coverage percentage
         id: coverage
         run: |
