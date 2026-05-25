@@ -88,6 +88,7 @@ jobs:
           name: dist
           path: |
             dist/
+            index.html
             Retirement Corpus & Income Planner.html
           retention-days: 7
 
@@ -124,6 +125,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Install Chrome for Puppeteer
+        id: setup-chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
@@ -186,6 +188,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # By default on pull_request events, actions/checkout checks out a
+          # synthetic merge ref (refs/pull/N/merge) whose HEAD is a merge
+          # commit GitHub auto-generates. That commit has no Co-authored-by
+          # trailer (no human ever wrote it), so trailer-check would always
+          # fail on PRs. Checkout the actual PR head commit instead.
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -196,7 +204,6 @@ jobs:
       - name: Fetch base branch (so origin/<base_ref> resolves)
         run: git fetch --no-tags --depth=50 origin "${{ github.base_ref }}"
       - name: Verify Co-authored-by trailers on PR commits
-        # In PR CI, main exists only as origin/main (not as a local branch ref),
-        # so the script's default --branch mode (which uses bare `main`) cannot
-        # resolve a merge-base. Use explicit --range against origin/<base_ref>.
+        # HEAD is now the PR head commit (not a merge ref). The range
+        # origin/<base_ref>..HEAD is exactly the PR's commits.
         run: node scripts/precommit-trailer-check.mjs --range "origin/${{ github.base_ref }}..HEAD"
