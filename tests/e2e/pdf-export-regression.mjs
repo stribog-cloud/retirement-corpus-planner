@@ -54,7 +54,7 @@ import { writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
-const ROOT = "/Users/msambare/Documents/LLM-Projects/Fin-Dashboard";
+const ROOT = process.cwd();
 const DIST = resolve(ROOT, "dist", "app.html");
 
 if (!existsSync(DIST)) {
