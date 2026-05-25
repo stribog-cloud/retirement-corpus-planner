@@ -1,0 +1,65 @@
+# Component: GaugeCard
+# Renderer: src/main.jsx:954 (React.memo)
+# Role: Semi-circular gauge KPI card with ratio-driven fill and status badge.
+# Interactivity: hover (CSS lift), no keyboard focus.
+# State applicability:
+#   default   YES  ratio rendered; status badge from statusForRatio()
+#   hover     YES  CSS :hover lifts card (no JS state)
+#   focus     NO   article element, not focusable
+#   active    NO   not pressable
+#   disabled  NO   no disabled prop
+#   loading   YES  ratio=null / zero indicates pending fill (status="unknown")
+#   error     NO   no error state; bad ratio clamps to 0–1
+#   empty     YES  detail/label absent or ratio=0
+#   stale     NO   display-only derived from model output
+#   dirty     NO   display-only
+#   drag-*    NO   not draggable
+
+direction: right
+
+default: {
+  shape: rectangle
+  label: "default\n(ratio in 0-1, badge colored)"
+  style: {
+    fill: "#e8f4fd"
+    stroke: "#4a90d9"
+    border-radius: 8
+  }
+}
+
+hover: {
+  shape: rectangle
+  label: "hover\n(shadow lifted)"
+  style: {
+    fill: "#d4ebfa"
+    stroke: "#2c6fad"
+    border-radius: 8
+  }
+}
+
+loading: {
+  shape: rectangle
+  label: "loading\n(ratio=0, badge=unknown)"
+  style: {
+    fill: "#fff8e1"
+    stroke: "#f0a500"
+    border-radius: 8
+  }
+}
+
+empty: {
+  shape: rectangle
+  label: "empty\n(label/detail missing)"
+  style: {
+    fill: "#f5f5f5"
+    stroke: "#9e9e9e"
+    border-radius: 8
+  }
+}
+
+default -> hover: "pointer-enter"
+hover -> default: "pointer-leave"
+default -> loading: "ratio = 0 / null (pending)"
+loading -> default: "ratio settled > 0"
+default -> empty: "detail / label absent"
+empty -> default: "data arrives"

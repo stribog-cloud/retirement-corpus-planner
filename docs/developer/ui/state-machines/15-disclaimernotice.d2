@@ -1,0 +1,76 @@
+# Component: DisclaimerNotice
+# Renderer: src/main.jsx:2343
+# Role: Privacy/disclaimer gate card; renders nothing when closed, blocks app when open.
+# Interactivity: three action buttons (Details, Clear saved data, I understand).
+# State applicability:
+#   default   YES  open=true; card rendered; actions available
+#   hover     YES  CSS :hover on action buttons
+#   focus     YES  action buttons tab-focused
+#   active    YES  button clicked (onAccept / onClear / onHelp called)
+#   disabled  NO   buttons not individually disabled
+#   loading   NO   no loading state
+#   error     NO   no error state
+#   empty     YES  open=false: returns null (component absent from DOM)
+#   stale     NO   not applicable
+#   dirty     NO   no input fields
+#   drag-*    NO   not draggable
+
+direction: right
+
+hidden: {
+  shape: rectangle
+  label: "hidden\n(open=false, returns null)"
+  style: {
+    fill: "#f5f5f5"
+    stroke: "#bdbdbd"
+    border-radius: 8
+  }
+}
+
+visible: {
+  shape: rectangle
+  label: "visible\n(open=true; card rendered)"
+  style: {
+    fill: "#e8f4fd"
+    stroke: "#4a90d9"
+    border-radius: 8
+  }
+}
+
+button_focus: {
+  shape: rectangle
+  label: "button focused\n(tab to action button)"
+  style: {
+    fill: "#e3f2fd"
+    stroke: "#1565c0"
+    border-radius: 8
+  }
+}
+
+accepted: {
+  shape: rectangle
+  label: "accepted\n(onAccept called → parent hides)"
+  style: {
+    fill: "#e8f5e9"
+    stroke: "#43a047"
+    border-radius: 8
+  }
+}
+
+cleared: {
+  shape: rectangle
+  label: "cleared\n(onClear called → data wiped)"
+  style: {
+    fill: "#fff8e1"
+    stroke: "#fb8c00"
+    border-radius: 8
+  }
+}
+
+hidden -> visible: "open = true\n(first visit or data cleared)"
+visible -> button_focus: "tab to action button"
+button_focus -> accepted: "click 'I understand' (onAccept)"
+button_focus -> cleared: "click 'Clear saved data' (onClear)"
+accepted -> hidden: "parent sets open=false"
+cleared -> visible: "data cleared; notice stays open"
+visible -> hidden: "parent sets open=false"

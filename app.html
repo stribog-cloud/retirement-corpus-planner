@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' data: blob:; style-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"
+    />
+    <title>Retirement Corpus & Income Planner</title>
+    <meta name="theme-color" content="#101827" />
+    <link rel="icon" type="image/svg+xml" sizes="any" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='10' y1='8' x2='56' y2='58'%3E%3Cstop stop-color='%232ed3cf'/%3E%3Cstop offset='1' stop-color='%236b7cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='%23101827'/%3E%3Cpath d='M17 17h30M17 25h30' stroke='url(%23g)' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M20 17h15c8 0 13 4 13 10 0 7-6 11-15 11H21l19 17' fill='none' stroke='%23f8fafc' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='48' cy='17' r='5' fill='%23f6c85f'/%3E%3C/svg%3E" />
+    <script>
+      try {
+        // R4.5b: check new disclaimer flag first; fall back to legacy
+        // privacy-consent flag for backward-compat with existing installs.
+        const newConsent = localStorage.getItem("disclaimer_acknowledged_v1");
+        const legacyConsent = localStorage.getItem("fin-cockpit-privacy-consent-v1");
+        const hasConsent = newConsent === "true"
+          || legacyConsent === "accepted"
+          || Boolean(JSON.parse(legacyConsent || "{}").accepted);
+        const rawTheme = hasConsent ? localStorage.getItem("fin-cockpit-theme") : "";
+        let savedTheme = "";
+        try {
+          savedTheme = JSON.parse(rawTheme || "\"\"");
+        } catch (parseError) {
+          savedTheme = rawTheme;
+        }
+        document.documentElement.dataset.theme = savedTheme === "light" || savedTheme === "dark" ? savedTheme : "dark";
+      } catch (error) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

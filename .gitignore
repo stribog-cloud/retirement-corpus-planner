@@ -1,0 +1,231 @@
+# -----------------------------------------------------------------------------
+# .gitignore — Retirement Corpus & Income Planner (v1.0.0)
+# -----------------------------------------------------------------------------
+# Conventions:
+#   - Patterns without a leading slash match at ANY depth.
+#   - Patterns with a leading slash are anchored to repo root.
+#   - Trailing slash means directory only.
+#   - Comments group rules by domain — keep additions in the right section.
+# -----------------------------------------------------------------------------
+
+
+# =============================================================================
+# Operating system artifacts
+# =============================================================================
+# macOS Finder metadata, Spotlight indices, resource forks, trash, etc.
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.VolumeIcon.icns
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+
+# =============================================================================
+# Cloud sync / version-control conflict artifacts
+# =============================================================================
+# When a project directory lives under a sync-managed location (iCloud Drive,
+# Dropbox, Syncthing, OneDrive, Google Drive), the sync tool can create
+# conflict files when the same path is modified on two endpoints. None of
+# these belong in git.
+#
+# Prevention is better than cure: move the working tree to a non-synced
+# location (e.g. ~/code/ or ~/Developer/), or configure the sync tool to
+# exclude the directory + its .git.
+
+# macOS Finder / iCloud Drive duplicate convention.
+# Triggered by Finder copy-paste, iCloud conflict resolution, some restore
+# workflows. Pattern is "<original> 2.<ext>". Cleanup:
+#   find . -name '* 2.*' -not -path './node_modules/*' -not -path './.git/*' -delete
+* 2.*
+
+# iCloud Drive — placeholder files for non-downloaded content
+*.icloud
+.icloud
+
+# Dropbox — conflict file naming
+* (conflicted copy *).*
+* (Case Conflict *).*
+
+# Syncthing — own conflict pattern + state directories
+*.sync-conflict-*
+.stversions/
+.stignore
+.stfolder
+
+# OneDrive / Google Drive — common conflict suffix patterns
+*-Conflict.*
+*-Conflicted-Copy.*
+*-conflict-*.*
+
+# Time Machine remnants
+.MobileBackups/
+Backups.backupdb/
+
+
+# =============================================================================
+# Editors and IDEs
+# =============================================================================
+# VSCode / Cursor / JetBrains / Sublime / vim / emacs.
+# Project-wide shared settings (e.g. recommended extensions) can be opted in
+# explicitly with `!.vscode/extensions.json` etc.
+.vscode/
+.cursor/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*.swn
+.netrwhist
+\#*\#
+.\#*
+
+
+# =============================================================================
+# Node / JavaScript dependencies and build artifacts
+# =============================================================================
+node_modules/
+.npm
+.yarn/
+.pnp.*
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.vite/
+.turbo/
+*.tsbuildinfo
+
+# Tool caches
+.eslintcache
+.stylelintcache
+.parcel-cache/
+
+
+# =============================================================================
+# Test, coverage, and visual regression artifacts
+# =============================================================================
+coverage/
+.nyc_output/
+*.lcov
+.vitest-cache/
+test-results/
+playwright-report/
+playwright/.cache/
+/snapshots-debug/
+
+
+# =============================================================================
+# Python — virtual environments, caches, coverage
+# =============================================================================
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+.pyright_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+*.egg
+
+
+# =============================================================================
+# Environment and secrets
+# =============================================================================
+# Never commit env files or anything resembling credentials. Make exceptions
+# explicit (e.g. `!.env.example`) rather than loosening these patterns.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+
+# =============================================================================
+# Logs
+# =============================================================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+
+# =============================================================================
+# Beads / Dolt — issue tracking infrastructure
+# =============================================================================
+# Beads stores its issue database, interaction logs, and the embedded Dolt
+# layer under .beads/. The whole thing is local-developer state, not source.
+.beads/
+.dolt/
+*.db
+*.dolt
+.beads-credential-key
+
+
+# =============================================================================
+# Audit infrastructure
+# =============================================================================
+# The audit/ directory contains the multi-round persona-orchestrated review
+# methodology (Round 3, 3.5, 4 signoffs, persona definitions, Q-ledgers,
+# Python reference implementation, charter-cache, etc.). This is Stribog's
+# internal engineering-sovereignty practice and stays out of the public
+# repository.
+audit/
+
+
+# =============================================================================
+# AI-assistant instruction files
+# =============================================================================
+# CLAUDE.md and AGENTS.md files contain assistant-specific guidance — useful
+# for local work, not appropriate for a public repository. Pattern matches at
+# any depth so per-directory variants are also covered.
+CLAUDE.md
+AGENTS.md
+
+
+# =============================================================================
+# Internal-only documentation
+# =============================================================================
+# docs/ has three subtrees: developer/ (architecture, public), user/ (guides,
+# public), internal/ (Stribog-private notes). Only internal/ is ignored.
+docs/internal/
+
+
+# =============================================================================
+# Project-specific exclusions
+# =============================================================================
+# Orchestrator session metadata (Claude Code's project-local state).
+.claude/
+
+# Personal investment scratch file kept alongside the project source for
+# convenience but not part of the application.
+investment_projection_v2.xlsx

@@ -1,0 +1,91 @@
+# Component: TaxLawEditor
+# Renderer: src/main.jsx:1058
+# Role: JSON editor for tax law ruleset with live parse, diff review, apply/reset/import/export.
+# Interactivity: textarea editing, review checkbox, multiple action buttons.
+# State applicability:
+#   default   YES  draft = active ruleset; parsed valid; no diff
+#   hover     YES  CSS :hover on buttons
+#   focus     YES  textarea or button tab-focused
+#   active    YES  button clicked (apply / reset / load / download)
+#   disabled  YES  apply button disabled when !parsed || (needsReview && !reviewConfirmed)
+#   loading   NO   no async loading state (file load is synchronous read)
+#   error     YES  JSON parse error; tax-law-status shows "JSON needs attention"
+#   empty     NO   always has draft content (initialized to baseline)
+#   stale     NO   draft is local state; not stale from external changes
+#   dirty     YES  draft differs from active ruleset (needsReview=true, diff rows present)
+#   drag-*    NO   not draggable
+
+direction: right
+
+default: {
+  shape: rectangle
+  label: "default\n(draft valid; matches active; no diff)"
+  style: {
+    fill: "#e8f4fd"
+    stroke: "#4a90d9"
+    border-radius: 8
+  }
+}
+
+dirty: {
+  shape: rectangle
+  label: "dirty\n(draft edited; diff rows present;\nreview confirmation needed)"
+  style: {
+    fill: "#fff9c4"
+    stroke: "#f9a825"
+    border-radius: 8
+  }
+}
+
+error: {
+  shape: rectangle
+  label: "error\n(JSON parse fails;\ntax-law-status 'bad')"
+  style: {
+    fill: "#fdecea"
+    stroke: "#e53935"
+    border-radius: 8
+  }
+}
+
+review_confirmed: {
+  shape: rectangle
+  label: "review confirmed\n(checkbox checked;\napply button enabled)"
+  style: {
+    fill: "#e8f5e9"
+    stroke: "#43a047"
+    border-radius: 8
+  }
+}
+
+applied: {
+  shape: rectangle
+  label: "applied\n(setField called; ruleset active)"
+  style: {
+    fill: "#c8e6c9"
+    stroke: "#2e7d32"
+    border-radius: 8
+  }
+}
+
+disabled_apply: {
+  shape: rectangle
+  label: "apply disabled\n(!parsed || needsReview && !confirmed)"
+  style: {
+    fill: "#eeeeee"
+    stroke: "#9e9e9e"
+    border-radius: 8
+  }
+}
+
+default -> dirty: "textarea change (draft differs from active)"
+dirty -> error: "JSON parse fails"
+error -> dirty: "user edits to valid JSON"
+dirty -> review_confirmed: "review checkbox checked"
+review_confirmed -> applied: "click 'Apply reviewed rules'"
+applied -> default: "setField committed; draft=active"
+dirty -> disabled_apply: "needsReview && !reviewConfirmed"
+disabled_apply -> review_confirmed: "checkbox checked"
+default -> applied: "click 'Apply rules' (no diff)"
+applied -> default: "apply committed"
+dirty -> default: "click 'Reset baseline'"
+error -> default: "click 'Reset baseline'"

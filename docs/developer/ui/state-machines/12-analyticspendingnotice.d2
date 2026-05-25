@@ -1,0 +1,41 @@
+# Component: AnalyticsPendingNotice
+# Renderer: src/main.jsx:1247
+# Role: Inline notice displayed when modelPending=true; warns user actions are locked.
+# Interactivity: display only (role="status", aria-live="polite").
+# State applicability:
+#   default   YES  modelPending=false: generic syncing message
+#   hover     NO   display only
+#   focus     NO   not focusable
+#   active    NO   not pressable
+#   disabled  NO   no disabled prop
+#   loading   YES  modelPending=true: "Projection changed; analytics catching up"
+#   error     NO   no error state
+#   empty     NO   always rendered when parent mounts it (parent controls visibility)
+#   stale     YES  modelPending=true indicates stale analytics
+#   dirty     NO   display only
+#   drag-*    NO   not draggable
+
+direction: right
+
+syncing: {
+  shape: rectangle
+  label: "syncing\n(modelPending=false:\n'Analytics are syncing')"
+  style: {
+    fill: "#fff8e1"
+    stroke: "#f0a500"
+    border-radius: 8
+  }
+}
+
+projection_changed: {
+  shape: rectangle
+  label: "projection changed\n(modelPending=true:\n'Projection changed; analytics catching up')"
+  style: {
+    fill: "#fce4ec"
+    stroke: "#c62828"
+    border-radius: 8
+  }
+}
+
+syncing -> projection_changed: "modelPending = true\n(live state != analytics state)"
+projection_changed -> syncing: "modelPending = false\n(debounce settled)"

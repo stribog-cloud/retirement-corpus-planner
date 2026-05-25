@@ -1,0 +1,46 @@
+# gitleaks configuration for retirement-corpus-planner.
+# Extends the upstream default ruleset and allowlists project-specific paths
+# that legitimately contain high-entropy strings (test fixtures, snapshot
+# data, lockfile hashes).
+#
+# Upstream default ruleset:
+#   https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+
+title = "retirement-corpus-planner gitleaks config"
+
+[extend]
+# Extend the upstream default ruleset (AWS keys, GitHub tokens, generic
+# high-entropy strings, private keys, etc.). New rules can be added below.
+useDefault = true
+
+[allowlist]
+description = "Allowlisted paths that contain legitimate high-entropy data"
+
+paths = [
+  # Lockfile — npm hashes look high-entropy but are package integrity sums.
+  '''package-lock\.json''',
+
+  # Test fixtures and snapshots may contain synthetic data that triggers
+  # generic-secret heuristics. None of these are real credentials.
+  '''tests/.*\.snap''',
+  '''tests/.*fixtures/.*''',
+  '''tests/.*__snapshots__/.*''',
+  '''src/.*\.snap''',
+
+  # Built artifact embeds the full app, including any bundled regex or
+  # hash literals from libraries (jspdf, echarts). Not real secrets.
+  '''dist/.*\.html''',
+  '''Retirement Corpus & Income Planner\.html''',
+  '''index\.html''',
+  '''app\.html''',
+
+  # Coverage and CI output occasionally include file paths that pattern-match.
+  '''coverage/.*''',
+]
+
+# Optional: regexes for content lines to skip if they appear in any file.
+# Keep this list short — broad allowlist regexes weaken the secret scan.
+regexes = [
+  # Co-authored-by trailers reference the Anthropic noreply address; not a secret.
+  '''Co-authored-by:.*noreply@anthropic\.com''',
+]

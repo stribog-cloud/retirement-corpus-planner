@@ -1,0 +1,1629 @@
+{
+  "date": "2026-05-25T05:15:04.315Z",
+  "results": [
+    {
+      "component": "StatCard",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 7519
+    },
+    {
+      "component": "StatCard",
+      "state": "hover",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 7519
+    },
+    {
+      "component": "StatCard",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "StatCard is an <article>, not keyboard-focusable; no focus state defined in CSS"
+    },
+    {
+      "component": "StatCard",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "StatCard has no active CSS state (not interactive)"
+    },
+    {
+      "component": "StatCard",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "StatCard has no disabled state"
+    },
+    {
+      "component": "StatCard",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "StatCard has no loading state; loading is handled at page level via .model-pending"
+    },
+    {
+      "component": "StatCard",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "StatCard has no error state"
+    },
+    {
+      "component": "StatCard",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "StatCard always has a value prop; empty not applicable"
+    },
+    {
+      "component": "StatCard",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatCard",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 36654
+    },
+    {
+      "component": "GaugeCard",
+      "state": "hover",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 36654
+    },
+    {
+      "component": "GaugeCard",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "GaugeCard is an <article>, not keyboard-focusable"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "No active CSS state"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "No disabled state"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "No loading state on component"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "No error state on component"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 76050
+    },
+    {
+      "component": "TrustNotice",
+      "state": "hover",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "TrustNotice itself has no hover CSS; its action buttons do, but they are nested"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "TrustNotice is an <aside>, not focusable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable — TrustNotice is informational, not operational"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 30144
+    },
+    {
+      "component": "PanelHead",
+      "state": "hover",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "PanelHead container has no hover state; help button hover is a sub-element"
+    },
+    {
+      "component": "PanelHead",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "PanelHead div is not focusable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable — always has title"
+    },
+    {
+      "component": "PanelHead",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 6384
+    },
+    {
+      "component": "MiniMetric",
+      "state": "loading",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 4452
+    },
+    {
+      "component": "MiniMetric",
+      "state": "hover",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "MiniMetric has no hover CSS state"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "MiniMetric is a div, not focusable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable — value prop always supplied"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 10617
+    },
+    {
+      "component": "LegendRows",
+      "state": "hover",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "LegendRows has no hover CSS"
+    },
+    {
+      "component": "LegendRows",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not focusable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Rendered empty only when rows=[] — not a visible state"
+    },
+    {
+      "component": "LegendRows",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 958
+    },
+    {
+      "component": "StatementRow",
+      "state": "hover",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "StatementRow has no hover CSS"
+    },
+    {
+      "component": "StatementRow",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not focusable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 22144
+    },
+    {
+      "component": "BrandedToast",
+      "state": "active",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0201",
+      "diffPixels": 5,
+      "totalPixels": 24840
+    },
+    {
+      "component": "BrandedToast",
+      "state": "hover",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Toast has no hover CSS state"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Toast is not focusable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Error intent is captured in toast-active variant; separate error state not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 30502
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "active is already part of default render (one button always has .active class); no toggle to drive"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "hover",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 30502
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "focus",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 30502
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "ChoiceGroup buttons have no disabled prop in the component signature"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "focus",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "disabled",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "hover",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Captured via focus state; active CSS is equivalent to focus-visible for inputs"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "NumberEntry has no loading state"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "NumberEntry has no error CSS state; validation is done at model layer"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "dirty",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Empty input is not a named CSS state; renders as default"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "default",
+      "theme": "light",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 12835
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "hover",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "scenario-chip has no hover CSS"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "focus",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "scenario-chip is a div, not focusable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "active",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "scenario-chip uses .scenario-good/.scenario-warning/.scenario-danger variants not hover-activated"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "disabled",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "loading",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "error",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable — error state is .scenario-danger variant, covered in default"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "empty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "stale",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "dirty",
+      "theme": "light",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatCard",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 7519
+    },
+    {
+      "component": "StatCard",
+      "state": "hover",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 7519
+    },
+    {
+      "component": "StatCard",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "StatCard is an <article>, not keyboard-focusable; no focus state defined in CSS"
+    },
+    {
+      "component": "StatCard",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "StatCard has no active CSS state (not interactive)"
+    },
+    {
+      "component": "StatCard",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "StatCard has no disabled state"
+    },
+    {
+      "component": "StatCard",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "StatCard has no loading state; loading is handled at page level via .model-pending"
+    },
+    {
+      "component": "StatCard",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "StatCard has no error state"
+    },
+    {
+      "component": "StatCard",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "StatCard always has a value prop; empty not applicable"
+    },
+    {
+      "component": "StatCard",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatCard",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 36654
+    },
+    {
+      "component": "GaugeCard",
+      "state": "hover",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 36654
+    },
+    {
+      "component": "GaugeCard",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "GaugeCard is an <article>, not keyboard-focusable"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "No active CSS state"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "No disabled state"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "No loading state on component"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "No error state on component"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "GaugeCard",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 76050
+    },
+    {
+      "component": "TrustNotice",
+      "state": "hover",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "TrustNotice itself has no hover CSS; its action buttons do, but they are nested"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "TrustNotice is an <aside>, not focusable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable — TrustNotice is informational, not operational"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "TrustNotice",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 30144
+    },
+    {
+      "component": "PanelHead",
+      "state": "hover",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "PanelHead container has no hover state; help button hover is a sub-element"
+    },
+    {
+      "component": "PanelHead",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "PanelHead div is not focusable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable — always has title"
+    },
+    {
+      "component": "PanelHead",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "PanelHead",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 4452
+    },
+    {
+      "component": "MiniMetric",
+      "state": "loading",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 4452
+    },
+    {
+      "component": "MiniMetric",
+      "state": "hover",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "MiniMetric has no hover CSS state"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "MiniMetric is a div, not focusable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable — value prop always supplied"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "MiniMetric",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 10701
+    },
+    {
+      "component": "LegendRows",
+      "state": "hover",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "LegendRows has no hover CSS"
+    },
+    {
+      "component": "LegendRows",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not focusable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Rendered empty only when rows=[] — not a visible state"
+    },
+    {
+      "component": "LegendRows",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "LegendRows",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 958
+    },
+    {
+      "component": "StatementRow",
+      "state": "hover",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "StatementRow has no hover CSS"
+    },
+    {
+      "component": "StatementRow",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not focusable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "StatementRow",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 22144
+    },
+    {
+      "component": "BrandedToast",
+      "state": "active",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0201",
+      "diffPixels": 5,
+      "totalPixels": 24840
+    },
+    {
+      "component": "BrandedToast",
+      "state": "hover",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Toast has no hover CSS state"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Toast is not focusable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Error intent is captured in toast-active variant; separate error state not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "BrandedToast",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 30502
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "active is already part of default render (one button always has .active class); no toggle to drive"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "hover",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 30502
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "focus",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 30502
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "ChoiceGroup buttons have no disabled prop in the component signature"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ChoiceGroup",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "focus",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "hover",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Captured via focus state; active CSS is equivalent to focus-visible for inputs"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "NumberEntry has no loading state"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "NumberEntry has no error CSS state; validation is done at model layer"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 350
+    },
+    {
+      "component": "NumberEntry",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Empty input is not a named CSS state; renders as default"
+    },
+    {
+      "component": "NumberEntry",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "default",
+      "theme": "dark",
+      "status": "PASS",
+      "diffPct": "0.0000",
+      "diffPixels": 0,
+      "totalPixels": 12835
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "hover",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "scenario-chip has no hover CSS"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "focus",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "scenario-chip is a div, not focusable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "active",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "scenario-chip uses .scenario-good/.scenario-warning/.scenario-danger variants not hover-activated"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "disabled",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "loading",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "error",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable — error state is .scenario-danger variant, covered in default"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "empty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "stale",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    },
+    {
+      "component": "ScenarioChip",
+      "state": "dirty",
+      "theme": "dark",
+      "status": "SKIPPED",
+      "reason": "Not applicable"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+# Auto-detect text files; ensure consistent LF line endings in the repo.
+* text=auto eol=lf
+
+# Documentation and source files — text, LF.
+*.md       text eol=lf
+*.txt      text eol=lf
+*.json     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.html     text eol=lf
+*.css      text eol=lf
+*.js       text eol=lf
+*.jsx      text eol=lf
+*.mjs      text eol=lf
+*.ts       text eol=lf
+*.tsx      text eol=lf
+
+# Shell scripts — text, LF, executable bit preserved.
+*.sh       text eol=lf
+
+# Binary file types — never line-ending-converted.
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.svg      text eol=lf
+*.pdf      binary
+*.zip      binary
+*.tar.gz   binary
+*.woff     binary
+*.woff2    binary
+*.ttf      binary
+*.otf      binary
+*.xlsx     binary
+*.xls      binary

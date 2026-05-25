@@ -1,0 +1,78 @@
+# Component: QuickSelect
+# Renderer: src/main.jsx:1233
+# Role: Compact labeled select dropdown (wraps <select>) used in guided intake grids.
+# Interactivity: select dropdown; label wrapper adds is-disabled class.
+# State applicability:
+#   default   YES  label + select rendered; no modifier
+#   hover     YES  CSS :hover on quick-field label and select
+#   focus     YES  select element focused via tab
+#   active    YES  dropdown open (select expanded)
+#   disabled  YES  disabled={true} adds is-disabled; select disabled
+#   loading   NO   no loading state
+#   error     NO   no error rendering
+#   empty     NO   always has options from parent
+#   stale     NO   reflects parent value
+#   dirty     NO   selection commits immediately on change
+#   drag-*    NO   not draggable
+
+direction: right
+
+default: {
+  shape: rectangle
+  label: "default\n(label + select, enabled)"
+  style: {
+    fill: "#e8f4fd"
+    stroke: "#4a90d9"
+    border-radius: 6
+  }
+}
+
+hover: {
+  shape: rectangle
+  label: "hover\n(select hovered)"
+  style: {
+    fill: "#d4ebfa"
+    stroke: "#2c6fad"
+    border-radius: 6
+  }
+}
+
+focus: {
+  shape: rectangle
+  label: "focus\n(select tab-focused)"
+  style: {
+    fill: "#e3f2fd"
+    stroke: "#1565c0"
+    border-radius: 6
+  }
+}
+
+active: {
+  shape: rectangle
+  label: "active\n(dropdown open)"
+  style: {
+    fill: "#bbdefb"
+    stroke: "#0d47a1"
+    border-radius: 6
+  }
+}
+
+disabled: {
+  shape: rectangle
+  label: "disabled\n(is-disabled class; select disabled)"
+  style: {
+    fill: "#eeeeee"
+    stroke: "#9e9e9e"
+    border-radius: 6
+  }
+}
+
+default -> hover: "pointer-enter"
+hover -> default: "pointer-leave"
+hover -> active: "click"
+default -> focus: "tab"
+focus -> active: "space / enter / arrow"
+active -> default: "option selected (onChange called)"
+active -> default: "escape"
+default -> disabled: "disabled = true"
+disabled -> default: "disabled = false"

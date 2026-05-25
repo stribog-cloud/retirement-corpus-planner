@@ -1,0 +1,56 @@
+direction: right
+
+issue: {
+  label: "Beads issue"
+  shape: rectangle
+}
+
+code: {
+  label: "Code or product change"
+  shape: rectangle
+}
+
+docs: {
+  label: "User/developer docs"
+  shape: document
+}
+
+evidence: {
+  label: "Screenshots and D2 renders"
+  shape: document
+}
+
+gates: {
+  label: "doc-gate and make all"
+  shape: rectangle
+}
+
+brainforest: {
+  label: "BrainForest note"
+  shape: document
+}
+
+close: {
+  label: "Close issue and commit"
+  shape: rectangle
+}
+
+issue -> code -> docs -> evidence -> gates -> brainforest -> close
+gates -> docs: "fix drift"
+gates -> code: "fix failures"
+
+classes: {
+  loop: {
+    style.fill: "#1f2942"
+    style.stroke: "#2aa8b6"
+    style.font-color: "#f5f7fb"
+  }
+}
+
+issue.class: loop
+code.class: loop
+docs.class: loop
+evidence.class: loop
+gates.class: loop
+brainforest.class: loop
+close.class: loop

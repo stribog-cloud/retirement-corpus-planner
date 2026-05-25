@@ -1,0 +1,76 @@
+# Component: PanelHead
+# Renderer: src/main.jsx:6357 (React.memo)
+# Role: Panel header with eyebrow label, title h2, note, and optional help button.
+# Interactivity: help button only (if help prop provided).
+# State applicability:
+#   default   YES  eyebrow + title + note rendered; help button shown if prop set
+#   hover     YES  help button CSS :hover
+#   focus     YES  help button keyboard-focused
+#   active    YES  help button clicked (onClick fired)
+#   disabled  NO   no disabled state
+#   loading   NO   no loading state
+#   error     NO   no error state
+#   empty     YES  help prop absent → help button not rendered
+#   stale     NO   display only
+#   dirty     NO   display only
+#   drag-*    NO   not draggable
+
+direction: right
+
+default_with_help: {
+  shape: rectangle
+  label: "default\n(eyebrow + title + note + help button)"
+  style: {
+    fill: "#e8f4fd"
+    stroke: "#4a90d9"
+    border-radius: 6
+  }
+}
+
+default_no_help: {
+  shape: rectangle
+  label: "empty (no help)\n(help prop absent)"
+  style: {
+    fill: "#f5f5f5"
+    stroke: "#bdbdbd"
+    border-radius: 6
+  }
+}
+
+help_hover: {
+  shape: rectangle
+  label: "help-hover\n(button pointer-enter)"
+  style: {
+    fill: "#d4ebfa"
+    stroke: "#2c6fad"
+    border-radius: 6
+  }
+}
+
+help_focus: {
+  shape: rectangle
+  label: "help-focus\n(button tab-focused)"
+  style: {
+    fill: "#e3f2fd"
+    stroke: "#1565c0"
+    border-radius: 6
+  }
+}
+
+help_active: {
+  shape: rectangle
+  label: "help-active\n(button clicked; help() called)"
+  style: {
+    fill: "#bbdefb"
+    stroke: "#0d47a1"
+    border-radius: 6
+  }
+}
+
+default_with_help -> help_hover: "pointer-enter help button"
+help_hover -> default_with_help: "pointer-leave"
+default_with_help -> help_focus: "tab to help button"
+help_focus -> help_active: "enter / click"
+help_active -> default_with_help: "help drawer opened"
+default_with_help -> default_no_help: "help prop removed"
+default_no_help -> default_with_help: "help prop added"

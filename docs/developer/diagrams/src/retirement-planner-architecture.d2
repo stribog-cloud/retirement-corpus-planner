@@ -1,0 +1,60 @@
+direction: right
+
+classes: {
+  source: {
+    shape: page
+    style: { fill: "#eef6f8"; stroke: "#2f9ca8"; stroke-width: 2 }
+  }
+  core: {
+    shape: rectangle
+    style: { fill: "#f3f5ff"; stroke: "#5d72f6"; stroke-width: 2 }
+  }
+  ui: {
+    shape: rectangle
+    style: { fill: "#fff7e8"; stroke: "#d09f38"; stroke-width: 2 }
+  }
+  store: {
+    shape: cylinder
+    style: { fill: "#fff0f3"; stroke: "#ef637a"; stroke-width: 2 }
+  }
+  gate: {
+    shape: hexagon
+    style: { fill: "#edf7f4"; stroke: "#1f9f89"; stroke-width: 2 }
+  }
+}
+
+assumptions: "User assumptions" { class: source }
+tax: "Editable tax-law ruleset" { class: source }
+model: "Retirement domain model" { class: core }
+strategy: "Planning strategy engine" { class: core }
+analytics: "Background analytics bundle\\nMonte Carlo + solvers" { class: core }
+worker: "Inline analytics worker" { class: ui }
+trust: "Trust Center\\nreview pack\\nscenario library" { class: ui }
+persistence: "Persistence boundary" { class: ui }
+shell: "React dashboard shell" { class: ui }
+help: "Help and guided tour" { class: ui }
+exports: "PDF / CSV / review pack / scenario JSON / print / HTML" { class: ui }
+storage: "Browser localStorage\\nstate + scenarios" { class: store }
+gates: "Quality gates" { class: gate }
+
+assumptions -> model
+tax -> model
+model -> strategy
+model -> shell
+strategy -> shell
+model -> analytics
+strategy -> analytics
+analytics -> worker
+worker -> shell
+shell -> trust
+shell -> help
+shell -> exports
+trust -> exports
+shell -> persistence
+persistence -> storage
+storage -> assumptions
+gates -> model
+gates -> persistence
+gates -> shell
+gates -> exports
+gates -> analytics

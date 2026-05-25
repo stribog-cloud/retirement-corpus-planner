@@ -1,0 +1,77 @@
+# Component: BrandedToast
+# Renderer: src/main.jsx:549
+# Role: Status notification overlay (success/warning/error/info intents).
+# Interactivity: read-only display; appears/disappears on toast prop.
+# State applicability:
+#   default   YES  toast = null; component renders hidden (.show absent)
+#   hover     NO   not interactive
+#   focus     NO   not focusable (role="status")
+#   active    NO   no press action
+#   disabled  NO   no disabled state
+#   loading   NO   no loading state of its own
+#   error     YES  toast.intent = "error" (renders red badge)
+#   empty     YES  toast = null (hidden, no content)
+#   stale     NO   always reflects current toast prop
+#   dirty     NO   display only
+#   drag-*    NO   not draggable
+
+direction: right
+
+empty: {
+  shape: rectangle
+  label: "empty / hidden\n(toast = null, .show absent)"
+  style: {
+    fill: "#f5f5f5"
+    stroke: "#bdbdbd"
+    border-radius: 8
+  }
+}
+
+success: {
+  shape: rectangle
+  label: "success\n(intent=success, .show)"
+  style: {
+    fill: "#e8f5e9"
+    stroke: "#43a047"
+    border-radius: 8
+  }
+}
+
+warning_state: {
+  shape: rectangle
+  label: "warning\n(intent=warning, .show)"
+  style: {
+    fill: "#fff8e1"
+    stroke: "#fb8c00"
+    border-radius: 8
+  }
+}
+
+error: {
+  shape: rectangle
+  label: "error\n(intent=error, .show)"
+  style: {
+    fill: "#fdecea"
+    stroke: "#e53935"
+    border-radius: 8
+  }
+}
+
+info: {
+  shape: rectangle
+  label: "info\n(intent=info, .show)"
+  style: {
+    fill: "#e3f2fd"
+    stroke: "#1565c0"
+    border-radius: 8
+  }
+}
+
+empty -> success: "toast dispatched (intent=success)"
+empty -> warning_state: "toast dispatched (intent=warning)"
+empty -> error: "toast dispatched (intent=error)"
+empty -> info: "toast dispatched (intent=info)"
+success -> empty: "toast cleared (timeout or prop=null)"
+warning_state -> empty: "toast cleared"
+error -> empty: "toast cleared"
+info -> empty: "toast cleared"

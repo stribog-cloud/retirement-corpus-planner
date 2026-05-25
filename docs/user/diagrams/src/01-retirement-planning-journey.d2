@@ -1,0 +1,54 @@
+direction: right
+
+privacy: {
+  label: "Confirm local privacy"
+  shape: rectangle
+}
+
+inputs: {
+  label: "Enter household and portfolio assumptions"
+  shape: rectangle
+}
+
+verdict: {
+  label: "Read verdict and Trust Center"
+  shape: rectangle
+}
+
+cash: {
+  label: "Compare cash engines"
+  shape: rectangle
+}
+
+strategy: {
+  label: "Review guided strategy"
+  shape: rectangle
+}
+
+stress: {
+  label: "Stress-test scenarios and risk paths"
+  shape: rectangle
+}
+
+evidence: {
+  label: "Export evidence for review"
+  shape: rectangle
+}
+
+privacy -> inputs -> verdict -> cash -> strategy -> stress -> evidence
+
+classes: {
+  step: {
+    style.fill: "#1f2942"
+    style.stroke: "#2aa8b6"
+    style.font-color: "#f5f7fb"
+  }
+}
+
+privacy.class: step
+inputs.class: step
+verdict.class: step
+cash.class: step
+strategy.class: step
+stress.class: step
+evidence.class: step

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# pre-commit hook for retirement-corpus-planner.
+#
+# Activate with:  make setup-hooks   (configures git core.hooksPath)
+#
+# Runs in order:
+#   1. gitleaks (staged-changes secret scan)         — hard block on detection
+#   2. precommit-trailer-check                       — staged commit message check
+#
+# Both checks are also enforced in CI so the hook is a fast local guard,
+# not the source of truth. Disable with `--no-verify` only for emergencies.
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+# ---- Step 1: gitleaks secret scan on staged changes ----
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "→ gitleaks: scanning staged changes..."
+  if ! gitleaks protect --staged --config .gitleaks.toml -v; then
+    echo ""
+    echo "✗ gitleaks blocked the commit."
+    echo "  If this is a legitimate test fixture, add the path to"
+    echo "  .gitleaks.toml [allowlist].paths and retry."
+    echo "  If this is a real secret, REMOVE it from the file."
+    exit 1
+  fi
+  echo "  ok"
+else
+  echo "⚠ gitleaks not installed — skipping secret scan."
+  echo "  Install with:  brew install gitleaks"
+fi
+
+# ---- Step 2: AI-attribution trailer check ----
+# Skipped for merge / fixup / rebase commits. Enforced on regular commits.
+if [ -f scripts/precommit-trailer-check.mjs ]; then
+  echo "→ trailer-check: verifying Co-authored-by / No-AI-Author on the staged commit..."
+  if ! node scripts/precommit-trailer-check.mjs; then
+    echo ""
+    echo "✗ trailer-check blocked the commit."
+    echo "  AI-assisted commits must carry:  Co-authored-by: <model> <email>"
+    echo "  Purely human commits must carry: No-AI-Author: true"
+    exit 1
+  fi
+  echo "  ok"
+fi
+
+echo "✓ pre-commit checks passed"

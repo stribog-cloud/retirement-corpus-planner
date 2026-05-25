@@ -1,0 +1,77 @@
+# Component: ChoiceGroup
+# Renderer: src/main.jsx:1259
+# Role: Segmented button group for mutually-exclusive option selection.
+# Interactivity: each option button is pressable; aria-pressed tracks selection.
+# State applicability:
+#   default   YES  none selected / one option selected via value prop
+#   hover     YES  CSS :hover on individual buttons
+#   focus     YES  tab/keyboard focus on individual buttons
+#   active    YES  click pressed (aria-pressed=true on selected button)
+#   disabled  NO   no disabled prop on ChoiceGroup (individual buttons not disabled)
+#   loading   NO   no loading state
+#   error     NO   no error state
+#   empty     NO   always renders (options array from parent)
+#   stale     YES  just-changed class on feedbackId-matched button (transient flash)
+#   dirty     NO   selection commits immediately on click
+#   drag-*    NO   not draggable
+
+direction: right
+
+default: {
+  shape: rectangle
+  label: "default\n(value matches one option;\nbutton aria-pressed=true)"
+  style: {
+    fill: "#e8f4fd"
+    stroke: "#4a90d9"
+    border-radius: 6
+  }
+}
+
+hover: {
+  shape: rectangle
+  label: "hover\n(button under cursor highlighted)"
+  style: {
+    fill: "#d4ebfa"
+    stroke: "#2c6fad"
+    border-radius: 6
+  }
+}
+
+focus: {
+  shape: rectangle
+  label: "focus\n(button keyboard-focused)"
+  style: {
+    fill: "#e3f2fd"
+    stroke: "#1565c0"
+    border-radius: 6
+  }
+}
+
+active: {
+  shape: rectangle
+  label: "active\n(button pressed, option selected)"
+  style: {
+    fill: "#bbdefb"
+    stroke: "#0d47a1"
+    border-radius: 6
+  }
+}
+
+stale: {
+  shape: rectangle
+  label: "stale / just-changed\n(feedbackId flash class)"
+  style: {
+    fill: "#fff9c4"
+    stroke: "#f9a825"
+    border-radius: 6
+  }
+}
+
+default -> hover: "pointer-enter option button"
+hover -> default: "pointer-leave"
+hover -> active: "click (onChange called)"
+default -> focus: "tab to option button"
+focus -> active: "enter / space"
+active -> default: "selection committed; aria-pressed updated"
+active -> stale: "feedbackId matches (parent feedback)"
+stale -> default: "flash class removed (timeout)"

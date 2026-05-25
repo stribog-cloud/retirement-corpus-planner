@@ -1,0 +1,53 @@
+# Component: MiniMetric
+# Renderer: src/main.jsx:6370 (React.memo)
+# Role: Compact labeled metric with value and optional note; shows syncing animation when pending.
+# Interactivity: display only; no pointer/keyboard interaction.
+# State applicability:
+#   default   YES  label + value + optional note; no animation
+#   hover     NO   display only
+#   focus     NO   not focusable
+#   active    NO   not pressable
+#   disabled  NO   no disabled prop
+#   loading   YES  pending=true adds analytics-derived is-syncing class (pulse animation)
+#   error     NO   no error state
+#   empty     YES  value absent or zero
+#   stale     YES  pending=true indicates analytics not yet settled
+#   dirty     NO   display only
+#   drag-*    NO   not draggable
+
+direction: right
+
+default: {
+  shape: rectangle
+  label: "default\n(value settled, no animation)"
+  style: {
+    fill: "#e8f4fd"
+    stroke: "#4a90d9"
+    border-radius: 6
+  }
+}
+
+loading: {
+  shape: rectangle
+  label: "loading / stale\n(pending=true, is-syncing pulse)"
+  style: {
+    fill: "#fff8e1"
+    stroke: "#f0a500"
+    border-radius: 6
+  }
+}
+
+empty: {
+  shape: rectangle
+  label: "empty\n(value = 0 / absent)"
+  style: {
+    fill: "#f5f5f5"
+    stroke: "#bdbdbd"
+    border-radius: 6
+  }
+}
+
+default -> loading: "pending = true\n(analytics catching up)"
+loading -> default: "pending = false\n(analytics settled)"
+default -> empty: "value absent / zero"
+empty -> default: "value arrives"

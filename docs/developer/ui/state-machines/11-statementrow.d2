@@ -1,0 +1,41 @@
+# Component: StatementRow
+# Renderer: src/main.jsx:6385 (React.memo)
+# Role: Single ledger row with label, proportional bar fill, value, and optional accent class.
+# Interactivity: display only, no pointer/keyboard interaction.
+# State applicability:
+#   default   YES  label + bar fill (ratio) + value displayed
+#   hover     NO   display only
+#   focus     NO   not focusable
+#   active    NO   not pressable
+#   disabled  NO   no disabled prop
+#   loading   NO   no loading state
+#   error     NO   no error state
+#   empty     YES  ratio=0 / value absent; bar renders at 0% width
+#   stale     NO   display only
+#   dirty     NO   display only
+#   drag-*    NO   not draggable
+
+direction: right
+
+default: {
+  shape: rectangle
+  label: "default\n(bar filled per ratio 0-1)"
+  style: {
+    fill: "#e8f4fd"
+    stroke: "#4a90d9"
+    border-radius: 4
+  }
+}
+
+empty: {
+  shape: rectangle
+  label: "empty\n(ratio=0; bar at 0% width)"
+  style: {
+    fill: "#f5f5f5"
+    stroke: "#bdbdbd"
+    border-radius: 4
+  }
+}
+
+default -> empty: "ratio = 0"
+empty -> default: "ratio > 0"

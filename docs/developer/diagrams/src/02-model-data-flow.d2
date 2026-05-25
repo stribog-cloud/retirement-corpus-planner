@@ -1,0 +1,95 @@
+direction: right
+
+user_actor: {
+  label: "User edits assumptions"
+  shape: person
+}
+
+ui: {
+  label: "React shell\nsrc/main.jsx"
+  shape: rectangle
+}
+
+persistence: {
+  label: "Browser persistence\nsrc/persistence.js"
+  shape: cylinder
+}
+
+model: {
+  label: "Normalized model\nsrc/model.js"
+  shape: rectangle
+}
+
+planning: {
+  label: "Planning guidance\nsrc/planning.js"
+  shape: rectangle
+}
+
+analytics: {
+  label: "Background analytics\nsrc/analytics.js"
+  shape: rectangle
+}
+
+worker: {
+  label: "Inline analytics worker\nMonte Carlo + solvers"
+  shape: rectangle
+}
+
+scenario_library: {
+  label: "Scenario library\nsrc/scenario-library.js"
+  shape: rectangle
+}
+
+views: {
+  label: "Pages, Help, Trust Center,\nAssumption Studio"
+  shape: rectangle
+}
+
+exports: {
+  label: "PDF, CSV, JSON,\nreview pack"
+  shape: page
+}
+
+tests: {
+  label: "Unit, E2E, docs,\nquality gates"
+  shape: rectangle
+}
+
+user_actor -> ui: "input"
+ui -> model: "normalize + calculate"
+ui <-> persistence: "save/load local state"
+scenario_library -> model: "patch assumptions"
+model -> planning: "derived metrics"
+model -> analytics: "projection params"
+planning -> analytics: "strategy inputs"
+analytics -> worker: "heavy bundle"
+worker -> ui: "async analytics"
+model -> views: "visible numbers"
+planning -> views: "strategy guidance"
+analytics -> views: "risk + solver outputs"
+model -> exports: "live evidence"
+planning -> exports: "guidance narrative"
+analytics -> exports: "guarded readiness"
+tests -> model: "contract checks"
+tests -> ui: "interaction checks"
+tests -> exports: "live-state checks"
+
+classes: {
+  source: {
+    style.fill: "#1f2942"
+    style.stroke: "#2aa8b6"
+    style.font-color: "#f5f7fb"
+  }
+}
+
+ui.class: source
+persistence.class: source
+model.class: source
+planning.class: source
+analytics.class: source
+worker.class: source
+user_actor.class: source
+scenario_library.class: source
+views.class: source
+exports.class: source
+tests.class: source
