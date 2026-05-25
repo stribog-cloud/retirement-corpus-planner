@@ -796,9 +796,9 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
     document.documentElement.style.scrollBehavior = "auto";
     let cancelled = false;
     const placeTour = () => {
-      const target = tourTarget(active.selector);
+      const initialTarget = tourTarget(active.selector);
       clearTourHighlights();
-      if (!target) {
+      if (!initialTarget) {
         setSpotlight(null);
         return;
       }
@@ -810,14 +810,21 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
       // tour card are both position:fixed so they don't move when the
       // user scrolls the underlying page — losing the scroll lock costs
       // a small UX nicety but no correctness.
-      target.scrollIntoView({ behavior: "auto", block: isMobile ? "center" : active.scrollBlock || "center", inline: "nearest" });
+      initialTarget.scrollIntoView({ behavior: "auto", block: isMobile ? "center" : active.scrollBlock || "center", inline: "nearest" });
       if (isMobile) {
-        const firstRect = target.getBoundingClientRect();
+        const firstRect = initialTarget.getBoundingClientRect();
         const desiredTop = Math.round(window.innerHeight * 0.44);
         window.scrollBy({ top: firstRect.top - desiredTop, left: 0, behavior: "auto" });
       }
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         if (cancelled) return;
+        // Re-query the target inside the rAF chain. On views that re-
+        // render after the initial mount (e.g. the planner view's
+        // optimizer pass completing on the slow tier), React can swap
+        // out the DOM node between this effect's setup and the rAF
+        // measurement frame, leaving the captured initialTarget
+        // detached and its getBoundingClientRect stale.
+        const target = tourTarget(active.selector) || initialTarget;
         const rect = target.getBoundingClientRect();
         const margin = isMobile ? 8 : 14;
         const left = clamp(rect.left - margin, 10, window.innerWidth - 60);
