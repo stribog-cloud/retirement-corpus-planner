@@ -943,8 +943,9 @@ try {
 	  await setInput(page, ".whatif-card .quick-field[data-label=\"Monthly cash\"] input", 150000);
 	  await setInput(page, ".whatif-card .quick-field[data-label=\"Corpus today\"] input", 17500000);
 	  await openView(page, "planner");
-	  // Latency audit measures paint timing, not MC outcomes — fast tier only.
-	  await waitForModelIdle(page, 60000, { includeSlow: false });
+	  // Slow-tier wait is required: optimizer.strategies (cards 2 & 3)
+	  // populate on the slow tier; the paint-latency audit clicks them.
+	  await waitForModelIdle(page);
 	  const plannerTileLatency = await plannerTileLatencyAudit(page);
   const slowPlannerTiles = plannerTileLatency.filter((item) => !item.ok || item.ms > ciSlow(300));
   assert(!slowPlannerTiles.length, `slow planner tile response: ${JSON.stringify(slowPlannerTiles)}`);
