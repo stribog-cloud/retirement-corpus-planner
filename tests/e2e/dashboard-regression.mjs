@@ -1091,6 +1091,12 @@ try {
   await setInput(page, ".assumption-drawer .control[data-label=\"Dependant monthly support\"] input", 40000);
   await setInput(page, ".assumption-drawer .control[data-label=\"Dependant support years\"] input", 5);
   await setInput(page, ".assumption-drawer .control[data-label=\"Pension monthly income\"] input", 60000);
+  // Drain slow tier mid-block. Each setInput above queues a slow-tier
+  // recompute; on Ubuntu 2-vCPU the queue would otherwise build to ~12
+  // pending MCs draining serially. Pausing here halves the queue depth
+  // so the final drain inside captureProjectionSurface stays under
+  // the puppeteer wait ceiling.
+  await waitForModelIdle(page, 240000, { includeSlow: true });
   await setInput(page, ".assumption-drawer .control[data-label=\"Healthcare reserve\"] input", 2000000);
   await setInput(page, ".assumption-drawer .control[data-label=\"Emergency reserve months\"] input", 18);
   await setInput(page, ".assumption-drawer .control[data-label=\"Longevity horizon\"] input", 32);
