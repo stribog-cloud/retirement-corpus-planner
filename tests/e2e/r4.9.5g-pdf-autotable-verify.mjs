@@ -22,6 +22,7 @@
  */
 
 import { withBrowser } from "./_browser-helper.mjs";
+import { tmpFile } from "./_tmp-helper.mjs";
 import { writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -131,7 +132,7 @@ try {
   }
 
   const pdfBuf = Buffer.from(bytes);
-  const outPath = resolve("/tmp", "r4.9.5g-pdf-capture.pdf");
+  const outPath = tmpFile("r4.9.5g-pdf-capture.pdf");
   writeFileSync(outPath, pdfBuf);
   console.log(`PDF captured (${pdfBuf.length} bytes) -> ${outPath}`);
 

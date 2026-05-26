@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { withBrowser } from "./_browser-helper.mjs";
+import { tmpDir } from "./_tmp-helper.mjs";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 
 const root = process.cwd();
@@ -475,7 +476,7 @@ async function modelSettleLatencyAudit(page) {
 
 const server = await startServer();
 const port = server.address().port;
-const downloadDir = "/tmp/fin-dashboard-e2e-downloads";
+const downloadDir = tmpDir("dashboard-regression-downloads");
 const __T0 = Date.now();
 const __T = (label) => process.stderr.write(`[T+${((Date.now()-__T0)/1000).toFixed(1)}s] ${label}\n`);
 await withBrowser({}, async ({ page }) => {

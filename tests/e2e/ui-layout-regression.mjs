@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { withBrowser } from "./_browser-helper.mjs";
+import { tmpDir } from "./_tmp-helper.mjs";
 
 const root = process.cwd();
 const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
@@ -388,7 +389,7 @@ async function auditViewport(page, viewport, view = "overview") {
 
 const server = await startServer();
 const port = server.address().port;
-const screenshotRoot = "/tmp/fin-dashboard-ui-regression";
+const screenshotRoot = tmpDir("ui-layout-regression-screenshots");
 await rm(screenshotRoot, { recursive: true, force: true });
 await mkdir(screenshotRoot, { recursive: true });
 await withBrowser({}, async ({ browser, page }) => {

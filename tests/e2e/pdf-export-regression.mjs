@@ -50,6 +50,7 @@
  */
 
 import { withBrowser } from "./_browser-helper.mjs";
+import { tmpFile } from "./_tmp-helper.mjs";
 import { writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -280,8 +281,9 @@ try {
   // ─────────────────────────────────────────────────────────────────────
   console.log("\n── Phase 1: default-horizon end-to-end capture ──");
   const { pdfBuf: defaultPdf, liveSnapshot: defaultLive } = await capturePdfWithHorizon(undefined, "default");
-  writeFileSync(resolve("/tmp", "r4.9.5g-pdf-regression-default.pdf"), defaultPdf);
-  console.log(`  PDF captured (${defaultPdf.length} bytes) → /tmp/r4.9.5g-pdf-regression-default.pdf`);
+  const defaultOut = tmpFile("r4.9.5g-pdf-regression-default.pdf");
+  writeFileSync(defaultOut, defaultPdf);
+  console.log(`  PDF captured (${defaultPdf.length} bytes) → ${defaultOut}`);
   const defaultPages = await extractPageTexts(defaultPdf);
   console.log(`  Page count: ${defaultPages.length}`);
 
@@ -434,8 +436,9 @@ try {
   console.log("\n── Phase 2: 5-year horizon end-to-end capture ──");
   const altHorizon = 5;
   const { pdfBuf: altPdf, liveSnapshot: altLive } = await capturePdfWithHorizon(altHorizon, "5y");
-  writeFileSync(resolve("/tmp", "r4.9.5g-pdf-regression-5y.pdf"), altPdf);
-  console.log(`  PDF captured (${altPdf.length} bytes) → /tmp/r4.9.5g-pdf-regression-5y.pdf`);
+  const altOut = tmpFile("r4.9.5g-pdf-regression-5y.pdf");
+  writeFileSync(altOut, altPdf);
+  console.log(`  PDF captured (${altPdf.length} bytes) → ${altOut}`);
   const altPages = await extractPageTexts(altPdf);
 
   // Re-locate §6 in the alt PDF.

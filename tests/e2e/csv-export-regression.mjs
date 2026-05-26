@@ -26,6 +26,7 @@
  */
 
 import { withBrowser } from "./_browser-helper.mjs";
+import { tmpFile } from "./_tmp-helper.mjs";
 import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -349,9 +350,9 @@ try {
 
   const zipBuf = Buffer.from(rawBytes);
   console.log(`  ZIP captured: ${zipBuf.length} bytes`);
-  // Save to /tmp for post-mortem inspection.
-  writeFileSync(resolve("/tmp", "r4.9.5i-csv-export-regression.zip"), zipBuf);
-  console.log("  Saved to /tmp/r4.9.5i-csv-export-regression.zip");
+  const zipOut = tmpFile("r4.9.5i-csv-export-regression.zip");
+  writeFileSync(zipOut, zipBuf);
+  console.log(`  Saved to ${zipOut}`);
 
   // ── Step 8: Unzip on Node side ────────────────────────────────────────────
   const zip = await JSZip.loadAsync(zipBuf);
