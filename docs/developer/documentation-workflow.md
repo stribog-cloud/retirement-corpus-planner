@@ -67,9 +67,9 @@ make doc-gate
 
 The gate checks required docs, screenshot references, local links, and the `docs/` top-level directory contract.
 
-## 6. BrainForest
+## 6. Maintainer notes
 
-After significant product, tax, export, architecture, or documentation changes, update `/Users/msambare/Documents/BrainForest/20 - Personal/Finance/Fin-Dashboard.md` with a concise note and evidence. (This path is the owner's local personal vault and is not enforced by any repository gate. It is a documentation sync convention, not a repository contract.)
+After significant product, tax, export, architecture, or documentation changes, the maintainer keeps a private knowledge-base note with a concise summary and evidence links. This is an out-of-tree convention; it is not enforced by any repository gate and does not affect contributors.
 
 ## Revision History
 
