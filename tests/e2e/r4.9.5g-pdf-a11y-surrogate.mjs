@@ -29,6 +29,7 @@
 
 import { withBrowser } from "./_browser-helper.mjs";
 import { tmpFile } from "./_tmp-helper.mjs";
+import { freePort } from "./_net-helper.mjs";
 import { writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -52,7 +53,7 @@ if (!exe) {
   process.exit(2);
 }
 
-const PORT = 39146;
+const PORT = await freePort();
 const serverProc = spawn(
   "python3",
   ["-m", "http.server", String(PORT), "--directory", resolve(ROOT, "dist")],

@@ -29,6 +29,7 @@
  */
 
 import { withBrowser } from "./_browser-helper.mjs";
+import { freePort } from "./_net-helper.mjs";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -44,7 +45,7 @@ if (!existsSync(DIST)) {
 
 // ── Local HTTP server ─────────────────────────────────────────────────────────
 
-const PORT = 39149; // distinct from other e2e tests
+const PORT = await freePort();
 
 const serverProc = spawn(
   "python3",
