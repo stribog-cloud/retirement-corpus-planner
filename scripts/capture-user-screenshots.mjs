@@ -4,9 +4,9 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { readFile } from "node:fs/promises";
 import puppeteer from "puppeteer-core";
+import { CHROME as chrome } from "../tests/e2e/_browser-helper.mjs";
 
 const root = process.cwd();
-const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const outDir = "docs/user/assets";
 const screenshotMetadata = {
   "guided-tour": { viewport: "desktop 1440x920", sourcePage: "first-run guided tour" },

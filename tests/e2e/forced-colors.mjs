@@ -37,7 +37,6 @@ import axe from "axe-core";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "../..");
-const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const SNAPSHOT_DIR = join(__dirname, "__snapshots__", "forced-colors");
 
 const MIME = {

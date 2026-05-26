@@ -28,6 +28,8 @@
  */
 
 import { withBrowser } from "./_browser-helper.mjs";
+import { tmpFile } from "./_tmp-helper.mjs";
+import { freePort } from "./_net-helper.mjs";
 import { writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -40,18 +42,7 @@ if (!existsSync(DIST)) {
   process.exit(2);
 }
 
-const CANDIDATES = [
-  (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-  "/Applications/Chromium.app/Contents/MacOS/Chromium",
-  "/opt/homebrew/bin/chromium",
-];
-const exe = CANDIDATES.find((p) => existsSync(p));
-if (!exe) {
-  console.error("No Chromium/Chrome binary found at known paths.");
-  process.exit(2);
-}
-
-const PORT = 39146;
+const PORT = await freePort();
 const serverProc = spawn(
   "python3",
   ["-m", "http.server", String(PORT), "--directory", resolve(ROOT, "dist")],
@@ -141,7 +132,7 @@ try {
   }
 
   const pdfBuf = Buffer.from(bytes);
-  const outPath = resolve("/tmp", "r4.9.5g-pdf-a11y-surrogate.pdf");
+  const outPath = tmpFile("r4.9.5g-pdf-a11y-surrogate.pdf");
   writeFileSync(outPath, pdfBuf);
   console.log(`PDF captured (${pdfBuf.length} bytes) -> ${outPath}`);
 

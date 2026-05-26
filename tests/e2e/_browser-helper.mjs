@@ -41,7 +41,7 @@ import { join } from "node:path";
 //   2. Default to the standard macOS Chrome path (local dev on Mac Studio).
 // This makes the same helper work on macOS audit machines and on
 // ubuntu-latest GitHub Actions runners without per-environment branches.
-const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH
+export const CHROME = process.env.PUPPETEER_EXECUTABLE_PATH
   || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PROFILE_PREFIX = "puppeteer_dev_chrome_profile-";
 
