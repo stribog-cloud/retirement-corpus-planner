@@ -3,9 +3,9 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import axe from "axe-core";
 import puppeteer from "puppeteer-core";
+import { CHROME as chrome } from "../tests/e2e/_browser-helper.mjs";
 
 const root = process.cwd();
-const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const mime = {
   ".html": "text/html;charset=utf-8",
   ".js": "text/javascript;charset=utf-8",

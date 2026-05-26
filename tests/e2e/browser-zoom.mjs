@@ -48,7 +48,6 @@ import { withBrowser } from "./_browser-helper.mjs";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ROOT = process.cwd();
-const CHROME = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const SNAPSHOT_DIR = join(ROOT, "tests/e2e/__snapshots__/browser-zoom");
 const TOLERANCE = 2; // sub-pixel rounding tolerance (px)
 

@@ -41,7 +41,6 @@ import { withBrowser } from "./_browser-helper.mjs";
 import { tmpDir } from "./_tmp-helper.mjs";
 
 const root = process.cwd();
-const chrome = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const downloadDir = tmpDir("export-parity-downloads");
 const mime = {
   ".html": "text/html;charset=utf-8",

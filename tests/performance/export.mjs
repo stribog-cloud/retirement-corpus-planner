@@ -16,8 +16,8 @@ import { extname, join } from "node:path";
 import { existsSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 import { tmpDir } from "../e2e/_tmp-helper.mjs";
+import { CHROME } from "../e2e/_browser-helper.mjs";
 
-const CHROME = (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const ROOT = process.cwd();
 const DOWNLOAD_DIR = tmpDir("tesla-perf-export");
 const TRIALS = 5;

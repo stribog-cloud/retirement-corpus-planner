@@ -64,17 +64,6 @@ if (!existsSync(DIST)) {
   process.exit(2);
 }
 
-const CANDIDATES = [
-  (process.env.PUPPETEER_EXECUTABLE_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-  "/Applications/Chromium.app/Contents/MacOS/Chromium",
-  "/opt/homebrew/bin/chromium",
-];
-const exe = CANDIDATES.find((p) => existsSync(p));
-if (!exe) {
-  console.error("No Chromium/Chrome binary found at known paths.");
-  process.exit(2);
-}
-
 const PORT = await freePort();
 const serverProc = spawn(
   "python3",
