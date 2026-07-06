@@ -4,8 +4,8 @@ created: 2026-05-15
 updated: 2026-07-06
 type: project/developer-doc
 status: governing-reference
-version: "1.6.0"
-revision: 8
+version: "1.7.0"
+revision: 9
 last_updated: 2026-07-06
 tags: [developer-docs, model, tax, planning, contract]
 project: fin-dashboard
@@ -118,6 +118,78 @@ realize a capital loss during the projection window may show a lower
 projected tax and higher closing corpus than before this change; plans that
 never realize a loss (the default BASE state, and any shock-free scenario)
 are numerically unaffected, since an empty pool is a no-op.
+
+### 3.2 Opt-In Tax-Aware Rebalancing (fin-8fb F5)
+
+`calculateSwpPlan`'s annual equity/debt drift correction
+(`rebalanceBucketsToShare`, called once per projection year, before that
+year's monthly loop, whenever the current equity share drifts more than
+0.2% from the target) has always been tax-free: it moves value between
+buckets via `transferBucketValueWithoutTax`, an in-kind transfer that
+realizes no gain or loss. This is a planning-grade simplification — a real
+rebalance in India is a redemption followed by a repurchase, which realizes
+capital gains/losses on the selling leg — kept as the default so pre-F5
+output stays byte-identical. Since 2026-07-06, setting
+`params.rebalanceTaxAware = 1` (default `0`) switches the selling leg to a
+real FIFO lot sale.
+
+**Mechanism.** `rebalanceBucketsToShare` gained two optional trailing
+arguments, `taxAware` and `context`. When `taxAware` is true, the selling
+bucket's leg runs through a new helper, `sellBucketGrossWithTax`, which sells
+lots FIFO via the existing `previewLotSale(mutate: true)` primitive — the
+same primitive the monthly redemption loop (`redeemNetFromBucket`) and F1's
+carry-forward true-up both use. Because `calculateSwpPlan` now constructs
+that year's `context` (`{ params: yearParams, streams: emptyTaxStreams() }`)
+*before* calling `rebalanceBucketsToShare` (it used to be constructed just
+after), a tax-aware rebalance sale realizes its gain/loss into the exact
+same `context.streams` object the monthly loop accumulates into and F1's
+`applyYearEndCarryForward` reads at year end. This is what makes a
+rebalance-realized loss net against the same year's redemption gains within
+the year, and roll into the §74 pool for future years, exactly like a
+redemption-realized loss does. The reorder is a no-op for the default
+tax-free path (`transferBucketValueWithoutTax` never reads or writes
+`context`), and rebalancing still fires at the same point in the loop
+(year start, before the monthly loop) as before F5.
+
+**Sizing convention: gross-sized, not grossed-up.** The transfer is sized on
+GROSS sale value — the selling bucket's value always drops by exactly the
+same rebalance amount the tax-free path would move (`|desiredEquity -
+currentEquity|`), so tax comes out of sale proceeds and the buying bucket
+receives the sale's net-of-tax proceeds (`amount - tax`) as a new
+contribution lot at the current NAV (the same mechanism `addContributionLot`
+already uses for SIP contributions and F1's carry-forward tax credit).
+Portfolio total value after a taxed rebalance is therefore `before - tax`.
+The alternative — grossing up the sale so the buyer receives the *full*
+pre-tax amount — was deliberately rejected: it oversells the leaving bucket
+beyond what the target allocation calls for, distorting the resulting
+allocation away from the target share the caller asked for.
+
+**Additive ledger fields.** Yearly rows gained `rebalanceGross` and
+`rebalanceTax` (both `0` in default mode). They report only the rebalance
+leg's own gross sale value and tax; they are deliberately **not** folded
+into `grossRedemption` (which means "sold to fund a cash withdrawal" — a
+rebalance trade is an internal transfer between buckets, not a cash
+withdrawal, so folding it in would distort `reinvested` and
+`principalDrawdown`). The rebalance leg's tax, realized gain, taxable gain,
+long/short-term split, exemption/rebate usage, and capital-recovered
+components **are** folded into the year's existing `tax`, `realizedGain`,
+`taxableGain`, `longTermGain`, `shortTermGain`, `ltcgExemptionUsed`,
+`basicExemptionUsed`, `rebateUsed`, `rebateLost`, and `capitalRecovered`
+totals — the same way a redemption's contribution to those totals works —
+so the year's aggregate tax/gain reporting (and `finalizeModel`'s
+`effectiveTaxShare`) stays internally consistent whether the gain came from
+a redemption or a rebalance.
+
+**Scope.** Only `calculateSwpPlan` rebalances equity/debt buckets; Interest
+and IDCW plans have no lot buckets to rebalance, so F5 does not touch them.
+Monte Carlo and the Historical Backtest Lab both re-run `calculateSwpPlan`
+per path/cohort, so tax-aware rebalancing composes automatically; MC
+determinism (same seed → identical output across runs) is unaffected since
+the taxed path introduces no randomness of its own.
+
+**Default state unaffected.** `rebalanceTaxAware` defaults to `0`; the
+tax-free branch is textually unchanged from before F5, so default-state
+output (and `tests/v2-parity-goldens.test.jsx`) remains byte-identical.
 
 ## 4. Cash Engine Contract
 
@@ -429,6 +501,7 @@ This is the natural convention for an Indian retiree who states "I need ₹X/mon
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 1.7.0 | 9 | 2026-07-06 | fin-8fb F5: added §3.2 — opt-in tax-aware rebalancing (`rebalanceTaxAware`, default 0). `rebalanceBucketsToShare` gained optional `taxAware`/`context` arguments; when active, the selling leg is a real FIFO lot sale (`sellBucketGrossWithTax`) routed through `previewLotSale` into the SAME `context.streams` the monthly redemption loop and F1's year-end carry-forward true-up both read, so a rebalance-realized gain/loss participates in within-year §74 netting and the carry-forward pool. Documented the gross-sized (not grossed-up) transfer convention (`before - tax` total after a taxed rebalance), the new additive yearly ledger fields `rebalanceGross`/`rebalanceTax`, and why they are folded into the year's aggregate tax/gain totals but deliberately excluded from `grossRedemption`. Default mode (`rebalanceTaxAware = 0`) is textually unchanged and byte-identical. New export: `rebalanceBucketsToShare`. |
 | 1.6.0 | 8 | 2026-07-06 | fin-8fb F4: added §5.1 — Historical Backtest Lab. `calculateHistoricalBacktest(params, dataset = INDIA_ANNUAL_RETURNS)` deterministically replays every historical cohort window through the live cash engine via the same `sequenceReturnOverrides` plumbing Monte Carlo uses (no RNG). Documented the dataset-injection choice (imported directly into `src/model.js`, which is not import-free), the historical-inflation override's cumulative per-year compounding (`cumulativeInflationFactor`, `historicalInflationRateForYear` — both degrade to the exact pre-F4 `Math.pow` expression when no override is set, verified byte-identical against the full pre-F4 suite), the success-definition parity with `calculateMonteCarlo`, the known `buildMonthlyLedger` inflation-override gap, and the new `backtestEnabled`/`backtestUseHistoricalInflation` state fields. New exports: `calculateHistoricalBacktest`, `historicalReturnOverrideForYear`, `cumulativeInflationFactor`, `historicalInflationRateForYear`. UI integration (card, toggle, `MODEL_DEBUG_API`) is phase 2 and out of scope for this change. |
 | 1.5.0 | 7 | 2026-07-06 | fin-8fb F2: added §4.1 — dynamic withdrawal rules (`withdrawalRule`: `fixed`/`guardrails`/`percentOfCorpus`). New pure helper `resolveDynamicSpending` resolves the recurring annual cash target at each year boundary in `calculateSwpPlan`/`calculateInterestPlan`/`calculateIdcwPlan` (all three engines covered); fixed mode is structurally byte-identical to pre-F2 output. Documented guardrails band/adjust/clamp/inflation-hold precedence, the permanent (non-catch-up) held-inflation-factor semantics, percentOfCorpus's bypass of `inflateWithdrawals`, the nominal-escalation floor, new additive yearly ledger fields (`spendingMultiplier`, `guardrailAction`), the known `buildMonthlyLedger` static-target-curve limitation for Interest/IDCW, and that `cashCoverage` is always measured against the resolved (not original) target. New exports: `resolveDynamicSpending`. |
 | 1.4.0 | 6 | 2026-07-06 | fin-8fb F1: added §3.1 — §74 capital-loss carry-forward is now threaded live across projection years in `calculateSwpPlan`/`calculateInterestPlan` via a single per-year commit (`applyYearEndCarryForward`), documented per-engine scope (SWP full, Interest wired but structurally never realizes a loss today, IDCW out of scope), and the no-UI-toggle/numbers-may-improve-in-loss-scenarios rule. New exports: `assessmentYearForProjectionYear`, `applyYearEndCarryForward`. |

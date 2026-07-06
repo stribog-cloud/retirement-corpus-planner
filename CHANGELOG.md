@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in tax-aware rebalancing (fin-8fb F5): a new `rebalanceTaxAware`
+  setting (default `0`) switches `calculateSwpPlan`'s annual equity/debt
+  drift correction from an in-kind, tax-free transfer to a real FIFO lot
+  sale on the selling leg. The sale is routed through the same
+  `previewLotSale`/`context.streams` machinery the monthly redemption loop
+  and the fin-8fb F1 §74 carry-forward true-up both use — `calculateSwpPlan`
+  now builds each year's tax context *before* calling the rebalance step
+  (previously just after) so a rebalance-realized gain or loss nets against
+  the same year's redemption activity and rolls into the carry-forward pool
+  like any other sale. Convention: the transfer is sized on GROSS sale value
+  (the selling bucket's value always drops by the same amount the tax-free
+  path would move); tax comes out of sale proceeds, so the buying bucket
+  receives the net-of-tax amount as a new lot at the current NAV, and the
+  portfolio's total value after a taxed rebalance is `before - tax`. The
+  alternative — grossing up the sale so the buyer receives the full pre-tax
+  amount — was rejected because it oversells the leaving bucket beyond the
+  target allocation. Two new additive yearly ledger fields,
+  `rebalanceGross` and `rebalanceTax`, report the rebalance leg's own sale
+  size and tax (both `0` in default mode); the leg's tax/gain components are
+  folded into the year's existing tax/gain totals but deliberately excluded
+  from `grossRedemption` (a rebalance is an internal transfer, not a cash
+  withdrawal). Default mode (`rebalanceTaxAware = 0`) runs the pre-F5
+  tax-free branch unchanged, so default-state output stays byte-identical.
+  See `docs/developer/model-contract.md` §3.2 for the full contract. New
+  export: `rebalanceBucketsToShare`.
+
 - Historical Backtest Lab (fin-8fb F4): a new deterministic engine,
   `calculateHistoricalBacktest(params, dataset = INDIA_ANNUAL_RETURNS)`,
   replays every historical cohort window of length `params.years` found in

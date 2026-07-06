@@ -203,6 +203,10 @@ const BASE = {
   // assumed-inflation mode is documented as planning-grade).
   backtestEnabled: 1,
   backtestUseHistoricalInflation: 0,
+  // fin-8fb F5 — opt-in tax-aware rebalancing. Default 0 keeps the pre-F5
+  // tax-free rebalance transfer (see rebalanceBucketsToShare's default-path
+  // comment); set to 1 to realize the selling leg as a real FIFO lot sale.
+  rebalanceTaxAware: 0,
   costBasisPct: 75,
   legacyHoldingYears: 3,
   idcwYield: 6,
@@ -344,7 +348,8 @@ const NUMERIC_FIELDS = new Set([
   "percentOfCorpusRate",
   "spendingFloorMonthly",
   "backtestEnabled",
-  "backtestUseHistoricalInflation"
+  "backtestUseHistoricalInflation",
+  "rebalanceTaxAware"
 ]);
 
 function clamp(value, min, max) {
@@ -2054,17 +2059,100 @@ function transferBucketValueWithoutTax(fromBucket, toBucket, amount) {
   return transfer;
 }
 
-function rebalanceBucketsToShare(buckets, targetEquityShare) {
+// fin-8fb F5 — zero-result shape shared by every rebalanceBucketsToShare
+// return path (no-op deadband, no-op empty portfolio, and the tax-free
+// default path) so callers can unconditionally accumulate its fields.
+function zeroRebalanceResult() {
+  return { gross: 0, tax: 0, net: 0, realizedGain: 0, taxableGain: 0, exemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, capitalRecovered: 0, longTermGain: 0, shortTermGain: 0 };
+}
+
+// fin-8fb F5 — sells lots FIFO out of `bucket` up to a GROSS sale value of
+// `grossTarget` (capped at what the bucket holds), realizing each lot's
+// gain/loss through previewLotSale(mutate=true) so it lands in the SAME
+// context.streams the monthly redemption loop and F1's year-end carry-
+// forward true-up both read. Unlike redeemNetFromBucket (which sizes a sale
+// to hit a target NET cash figure via bisection), this targets a GROSS sale
+// value directly — no search needed, since the caller wants the selling
+// bucket's value to drop by exactly `grossTarget`, not to net a specific
+// amount of cash after tax.
+function sellBucketGrossWithTax(bucket, grossTarget, context) {
+  let remaining = Math.max(0, grossTarget);
+  const totals = zeroRebalanceResult();
+  for (const lot of bucket.lots) {
+    if (remaining <= 0 || lot.units <= 0) continue;
+    const grossAvailable = lot.units * bucket.nav;
+    const sale = Math.min(grossAvailable, remaining);
+    if (sale <= 0) continue;
+    const applied = previewLotSale(bucket, lot, sale, context, true);
+    lot.units -= applied.unitsSold;
+    totals.gross += sale;
+    totals.tax += applied.tax;
+    totals.realizedGain += applied.realizedGain;
+    totals.taxableGain += applied.taxableGain;
+    totals.exemptionUsed += applied.exemptionUsed;
+    totals.basicExemptionUsed += applied.basicExemptionUsed;
+    totals.rebateUsed += applied.rebateUsed;
+    totals.rebateLost += applied.rebateLost;
+    totals.capitalRecovered += Math.max(0, sale - Math.max(0, applied.realizedGain)); // fin-m66: loss lot: entire sale is capital recovery
+    totals.longTermGain += applied.longTermGain;
+    totals.shortTermGain += applied.shortTermGain;
+    remaining -= sale;
+  }
+  bucket.lots = bucket.lots.filter((lot) => lot.units > 1e-6);
+  totals.net = Math.max(0, totals.gross - totals.tax);
+  return totals;
+}
+
+// fin-8fb F5 — taxed counterpart of transferBucketValueWithoutTax. The
+// selling bucket's value drops by exactly `amount` (a real gross sale,
+// capped at what it holds, same sizing convention as the tax-free path);
+// the buying bucket receives the sale's NET-of-tax proceeds as a new
+// contribution lot at the current NAV (same mechanism addContributionLot
+// already uses for SIP contributions and the F1 carry-forward tax credit).
+function transferBucketValueWithTax(fromBucket, toBucket, amount, context) {
+  const available = bucketValue(fromBucket);
+  const transfer = Math.min(Math.max(0, amount), available);
+  if (transfer <= 0 || available <= 0) return zeroRebalanceResult();
+  const sale = sellBucketGrossWithTax(fromBucket, transfer, context);
+  addContributionLot(toBucket, sale.net);
+  return sale;
+}
+
+// fin-8fb F5 — opt-in tax-aware rebalancing (params.rebalanceTaxAware).
+// `taxAware`/`context` are optional so every pre-F5 call site (and any
+// caller that only wants the tax-free behavior) keeps working unchanged.
+function rebalanceBucketsToShare(buckets, targetEquityShare, taxAware = false, context = null) {
   const total = bucketValue(buckets.equity) + bucketValue(buckets.debt);
-  if (total <= 0) return;
+  if (total <= 0) return zeroRebalanceResult();
   const desiredEquity = total * clamp(targetEquityShare, 0, 1);
   const currentEquity = bucketValue(buckets.equity);
-  if (Math.abs(desiredEquity - currentEquity) <= total * 0.002) return;
+  if (Math.abs(desiredEquity - currentEquity) <= total * 0.002) return zeroRebalanceResult();
+  if (taxAware && context) {
+    // Convention: the transfer is sized on GROSS sale value — the selling
+    // bucket's value always drops by exactly the same rebalance amount the
+    // tax-free path below would move, so tax comes out of sale proceeds and
+    // the buying bucket receives (amount - tax). Portfolio total after a
+    // taxed rebalance is therefore (before - tax). The alternative —
+    // grossing up the sale so the buyer receives the FULL pre-tax amount —
+    // was rejected: it oversells the leaving bucket beyond what the target
+    // allocation calls for, distorting the resulting allocation.
+    if (desiredEquity > currentEquity) {
+      return transferBucketValueWithTax(buckets.debt, buckets.equity, desiredEquity - currentEquity, context);
+    }
+    return transferBucketValueWithTax(buckets.equity, buckets.debt, currentEquity - desiredEquity, context);
+  }
+  // Default (tax-free) path — unchanged since before fin-8fb F5. Simplification:
+  // an in-kind rebalance transfer is treated as if no sale occurred (no
+  // realized gain/loss, no tax). This is NOT how a real redemption-and-
+  // repurchase rebalance is taxed in India; it is a deliberate planning-grade
+  // simplification kept as the default so pre-F5 output stays byte-identical.
+  // Set params.rebalanceTaxAware = 1 to model the sale leg's real tax cost.
   if (desiredEquity > currentEquity) {
     transferBucketValueWithoutTax(buckets.debt, buckets.equity, desiredEquity - currentEquity);
   } else {
     transferBucketValueWithoutTax(buckets.equity, buckets.debt, currentEquity - desiredEquity);
   }
+  return zeroRebalanceResult();
 }
 
 function previewLotSale(bucket, lot, sale, context, mutate = false) {
@@ -2277,15 +2365,30 @@ function calculateSwpPlan(params) {
   let dynHeldInflationFactor = 1;
   let dynInitialRate = 0;
   let dynPriorYearReturn = null;
-  rows.push({ year: 0, opening: principal, effYield: effectiveYield(params), interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing: principal, realClosing: principal, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0, spendingMultiplier: 1, guardrailAction: "none" });
+  rows.push({ year: 0, opening: principal, effYield: effectiveYield(params), interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing: principal, realClosing: principal, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0, spendingMultiplier: 1, guardrailAction: "none", rebalanceGross: 0, rebalanceTax: 0 });
 
   for (let year = 1; year <= years; year++) {
     const yearParams = paramsForProjectionYear(params, year);
     setBucketGrowthRate(buckets.equity, swpBucketGrowthRate(yearParams, "equity"));
     setBucketGrowthRate(buckets.debt, swpBucketGrowthRate(yearParams, "debt"));
-    rebalanceBucketsToShare(buckets, Number(yearParams.useAssetReturns) === 1 ? clamp((Number(yearParams.equityShare) || 0) / 100, 0, 1) : 0);
-    const opening = bucketValue(buckets.equity) + bucketValue(buckets.debt);
+    // fin-8fb F5 — the year's tax context is created BEFORE the rebalance
+    // call (it used to be created just after) so a tax-aware rebalance sale
+    // can realize gains/losses through the SAME context.streams the monthly
+    // redemption loop below and F1's year-end carry-forward true-up both
+    // read — this is what makes a rebalance-realized loss net against the
+    // same year's redemption gains and roll into the §74 pool correctly.
+    // This reorder is a no-op for the tax-free default path
+    // (transferBucketValueWithoutTax never reads/writes context), so
+    // default-state output is unaffected; rebalance still runs at year
+    // start, before the monthly loop, exactly as before F5.
     const context = { params: yearParams, streams: emptyTaxStreams() };
+    const rebalance = rebalanceBucketsToShare(
+      buckets,
+      Number(yearParams.useAssetReturns) === 1 ? clamp((Number(yearParams.equityShare) || 0) / 100, 0, 1) : 0,
+      Number(yearParams.rebalanceTaxAware) === 1,
+      context
+    );
+    const opening = bucketValue(buckets.equity) + bucketValue(buckets.debt);
     // fin-8fb F2 — resolve this year's recurring cash target once, at the
     // year boundary (before any monthly redemption), exactly mirroring F1's
     // year-boundary carry-forward commit. "fixed" mode never calls
@@ -2315,26 +2418,36 @@ function calculateSwpPlan(params) {
       spendingMultiplier = yearDynamic.nextMultiplier;
       guardrailAction = yearDynamic.guardrailAction;
     }
+    // fin-8fb F5 — the rebalance sale (if any) already happened above, before
+    // this year's monthly loop, so its tax/gain components seed `annual`
+    // here rather than being added via a += in the month loop. In the
+    // default (tax-free) mode `rebalance` is the all-zero result, so every
+    // seeded field below is identical to the pre-F5 literal `0`. Rebalance
+    // gross/tax are intentionally NOT folded into annual.grossRedemption —
+    // that field means "sold to fund a cash withdrawal", and a rebalance
+    // trade is an internal transfer between buckets, not a cash withdrawal.
     const annual = {
       interest: 0,
-      tax: 0,
+      tax: rebalance.tax,
       withdrawal: 0,
       grossRedemption: 0,
-      realizedGain: 0,
-      taxableGain: 0,
-      ltcgExemptionUsed: 0,
-      capitalRecovered: 0,
-      longTermGain: 0,
-      shortTermGain: 0,
-      basicExemptionUsed: 0,
-      rebateUsed: 0,
-      rebateLost: 0,
+      realizedGain: rebalance.realizedGain,
+      taxableGain: rebalance.taxableGain,
+      ltcgExemptionUsed: rebalance.exemptionUsed,
+      capitalRecovered: rebalance.capitalRecovered,
+      longTermGain: rebalance.longTermGain,
+      shortTermGain: rebalance.shortTermGain,
+      basicExemptionUsed: rebalance.basicExemptionUsed,
+      rebateUsed: rebalance.rebateUsed,
+      rebateLost: rebalance.rebateLost,
       section80TTBUsed: 0,
       section80TTBDisallowed: 0,
       contribution: 0,
       shock: 0,
       targetCash: 0,
-      shortfall: 0
+      shortfall: 0,
+      rebalanceGross: rebalance.gross,
+      rebalanceTax: rebalance.tax
     };
 
     for (let month = 1; month <= 12; month++) {
@@ -2522,7 +2635,10 @@ function calculateSwpPlan(params) {
       targetCash: annual.targetCash,
       lotCount: buckets.equity.lots.length + buckets.debt.lots.length,
       spendingMultiplier,
-      guardrailAction
+      guardrailAction,
+      // fin-8fb F5 — additive; both 0 in default (tax-free) rebalance mode.
+      rebalanceGross: annual.rebalanceGross,
+      rebalanceTax: annual.rebalanceTax
     });
   }
   return finalizeModel(rows, params, effectiveYield(params), cumWithdrawals, cumTax, cumContributions, monthlyRows);
@@ -3718,6 +3834,7 @@ export {
   monthlyRateFromAnnual,
   makeBucket,
   bucketValue,
+  rebalanceBucketsToShare,
   calculateSwpPlan,
   calculateIdcwPlan,
   monthlyCashNeedForYear,
