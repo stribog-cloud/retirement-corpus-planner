@@ -56,11 +56,13 @@ describe("App mounts without a render-time crash", () => {
   });
 
   afterEach(() => {
-    document.body.innerHTML = "";
+    document.body.replaceChildren();
   });
 
   it("renders the first-launch disclaimer dialog into #root", async () => {
-    document.body.innerHTML = '<div id="root"></div>';
+    const root = document.createElement("div");
+    root.id = "root";
+    document.body.replaceChildren(root);
     // Importing the module triggers the createRoot(...).render(<App />) side
     // effect against the #root we just created. A scope/reference error in any
     // rendered component surfaces here as a thrown import.

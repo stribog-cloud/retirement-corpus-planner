@@ -182,6 +182,21 @@ describe("csvCell — RFC 4180 escaping", () => {
   it("returns empty string for zero (not empty) — zero is a valid number", () => expect(csvCell(0)).toBe("0"));
 });
 
+describe("csvCell — formula injection neutralization (CWE-1236)", () => {
+  it("prefixes a leading '=' formula", () => expect(csvCell('=HYPERLINK("http://x",A1)')).toBe('"\'=HYPERLINK(""http://x"",A1)"'));
+  it("prefixes a leading '@' formula", () => expect(csvCell("@SUM(1)")).toBe("'@SUM(1)"));
+  it("prefixes a leading '+' formula", () => expect(csvCell("+2+3")).toBe("'+2+3"));
+  it("prefixes a non-numeric leading '-' formula", () => expect(csvCell("-cmd|calc")).toBe("'-cmd|calc"));
+  it("prefixes a leading '-HYPERLINK' formula (non-numeric leading -)", () => expect(csvCell("-HYPERLINK(1)")).toBe("'-HYPERLINK(1)"));
+  it("prefixes a leading TAB", () => expect(csvCell("\tTAB")).toBe("'\tTAB"));
+  it("prefixes a leading CR (still RFC 4180-quoted for the embedded \\r)", () => expect(csvCell("\rCR")).toBe('"\'\rCR"'));
+  it("does NOT prefix a plain negative number", () => expect(csvCell(-1500.5)).toBe("-1500.5"));
+  it("does NOT prefix a plain negative number given as a string", () => expect(csvCell("-1500.50")).toBe("-1500.50"));
+  it("does NOT prefix a plain positive number", () => expect(csvCell(42)).toBe("42"));
+  it("does NOT prefix zero", () => expect(csvCell(0)).toBe("0"));
+  it("does NOT prefix an ordinary string not starting with a danger character", () => expect(csvCell("hello")).toBe("hello"));
+});
+
 describe("fmt helpers", () => {
   it("fmtInr: formats normal number to 2dp", () => expect(fmtInr(12345.678)).toBe("12345.68"));
   it("fmtInr: returns empty for NaN", () => expect(fmtInr(NaN)).toBe(""));
@@ -1745,6 +1760,23 @@ describe("exportCsvZip — fin-8fb.9 metadata.csv assumptions (withdrawal rule /
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
     expect(metaRows.find((r) => r.key === "goals_count").value).toBe("0");
+  });
+
+  // T-G14 (CWE-1236): a goal name that looks like a spreadsheet formula must
+  // be neutralized with a leading single-quote when it reaches metadata.csv —
+  // goal names are unauthenticated user free text (≤40 chars).
+  it("T-G14: a formula-shaped goal name is neutralized with a leading single-quote in metadata.csv", async () => {
+    const ctx = makeExportContext({
+      useHouseholdPlan: 1,
+      plannedLumpSums: [{ name: '=HYPERLINK("http://evil",A1)', amount: 100000, year: 2, inflate: 0 }]
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const byKey = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+    expect(byKey.goal_1_name.startsWith("'")).toBe(true);
+    expect(byKey.goal_1_name).toBe('\'=HYPERLINK("http://evil",A1)');
   });
 });
 

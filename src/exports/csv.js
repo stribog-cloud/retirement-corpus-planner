@@ -113,11 +113,26 @@ export const SCENARIO_LIBRARY_VERSION = _fnv1aScenarioFingerprint(
 
 // ── RFC 4180 CSV helpers ──────────────────────────────────────────────────────
 
+// CWE-1236 (CSV/formula injection): a cell whose first character is one of
+// = + - @ TAB CR is interpreted as a formula by Excel/Sheets/LibreOffice when
+// the exported file is opened. Sinks include user free-text (goal names) and
+// tax-law provenance fields (version/source/updatedOn) — all flow through
+// csvCell, so neutralizing here covers every sheet uniformly.
+const FORMULA_LEAD_CHAR = /^[=+\-@\t\r]/;
+// A plain (optionally negative) number must NOT be prefixed — many legitimate
+// cells are negative rupee amounts (e.g. "-1500.00") and prefixing them would
+// corrupt the numeric value. OWASP guidance: only neutralize non-numeric cells.
+const LEADING_NUMBER = /^-?\d/;
+
 /**
  * Escape a single cell value per RFC 4180:
  * - If value contains comma, newline, or double-quote → wrap in double-quotes
  * - Double-quote inside a quoted field → doubled ("")
  * - null/undefined/NaN → empty string
+ *
+ * Also neutralizes spreadsheet formula injection (CWE-1236): a cell that is
+ * not a plain number and starts with = + - @ TAB or CR gets a leading single
+ * quote, the standard spreadsheet-safe prefix, before RFC 4180 quoting.
  *
  * Exported for direct unit testing.
  */
@@ -126,7 +141,10 @@ export function csvCell(value) {
     // NaN check: NaN !== NaN
     return "";
   }
-  const s = String(value);
+  let s = String(value);
+  if (!LEADING_NUMBER.test(s) && FORMULA_LEAD_CHAR.test(s)) {
+    s = "'" + s;
+  }
   if (s.includes(",") || s.includes("\n") || s.includes("\r") || s.includes('"')) {
     return '"' + s.replace(/"/g, '""') + '"';
   }

@@ -7,7 +7,17 @@ import path from "node:path";
 // docs/internal/CHARTER-COMPLIANCE-ANNEX.md §2.6.17 — zero outbound
 // connect-src). This gate blocks accidental introduction of runtime network
 // APIs into hand-maintained source, and blocks external resource loads in
-// the source HTML entrypoint and the built single-file artifact.
+// the source HTML entrypoint, the built single-file artifact, and CSS.
+//
+// IMPORTANT — this is a static, textual scanner. It CANNOT catch
+// runtime-obfuscated egress: dynamic property access (`window["fe"+"tch"]`),
+// re-exported/aliased references to a network API, or a `Function`
+// constructor building a call at runtime. Those classes of evasion require a
+// runtime backstop, not a smarter regex. tests/e2e/offline-load.mjs is that
+// backstop — it drives the built artifact under real Chrome network request
+// interception and asserts zero outbound requests regardless of how the
+// call was constructed. Treat this gate as the fast, cheap first line and
+// offline-load.mjs as the authoritative one.
 
 const root = process.cwd();
 const allowComment = "network-gate-allow";
@@ -23,7 +33,18 @@ const runtimeApiPatterns = [
   { label: "new WebSocket(", test: (line) => /\bnew\s+WebSocket\s*\(/.test(line) },
   { label: "EventSource(", test: (line) => /\bEventSource\s*\(/.test(line) },
   { label: "navigator.serviceWorker", test: (line) => /navigator\.serviceWorker\b/.test(line) },
-  { label: "importScripts(", test: (line) => /\bimportScripts\s*\(/.test(line) }
+  { label: "importScripts(", test: (line) => /\bimportScripts\s*\(/.test(line) },
+  // Dynamic import() of a remote URL. Static `import x from "./local.js"` and
+  // call-form dynamic imports of local modules (e.g. `import("./exports/csv.js")`,
+  // `import("jspdf")`) are unaffected — only a call-form import() whose first
+  // argument is an http(s) string literal is flagged.
+  { label: "import(\"https?://…\")", test: (line) => /import\s*\(\s*['"]https?:/.test(line) },
+  { label: "new RTCPeerConnection(", test: (line) => /\bnew\s+RTCPeerConnection\b/.test(line) },
+  // Assignment of a literal http(s) URL to a created element's .src/.href —
+  // catches the DOM-node-creation egress path that bypasses the <script>/
+  // <link>/<img>/<iframe> markup scan below (scanExternalResourceTags only
+  // sees static HTML attributes, not runtime `el.src = "https://…"`).
+  { label: ".src/.href = \"https?://…\"", test: (line) => /\.(src|href)\s*=\s*['"]https?:/.test(line) }
 ];
 
 // External resource-loading tags: only the actual src/href attribute value
@@ -33,16 +54,23 @@ const runtimeApiPatterns = [
 const resourceTagPattern = /<(script|link|img|iframe)\b([^>]*)>/gi;
 const resourceAttrPattern = /(?:^|\s)(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["']/i;
 
+// CSS external resource loads: @import of a remote stylesheet, or url(...)
+// pointing at a remote font/image/resource. Local url(./foo.woff2) and
+// url(data:...) references are unaffected — only a literal http(s) target
+// is flagged.
+const cssImportPattern = /@import\s+(?:url\()?['"]?(https?:\/\/[^'")\s;]+)/i;
+const cssUrlPattern = /url\(\s*['"]?(https?:\/\/[^'")\s]+)['"]?\s*\)/gi;
+
 const failures = [];
 
-async function walkSourceFiles(dir) {
+async function walkSourceFiles(dir, extensions) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await walkSourceFiles(fullPath)));
-    } else if ([".js", ".jsx"].includes(path.extname(entry.name))) {
+      files.push(...(await walkSourceFiles(fullPath, extensions)));
+    } else if (extensions.includes(path.extname(entry.name))) {
       files.push(fullPath);
     }
   }
@@ -77,12 +105,36 @@ function scanExternalResourceTags(relativePath, content) {
   });
 }
 
+function scanCssExternalResources(relativePath, content) {
+  const lines = content.split("\n");
+  lines.forEach((line, index) => {
+    if (line.includes(allowComment)) return;
+    const importMatch = cssImportPattern.exec(line);
+    if (importMatch) {
+      failures.push(`${relativePath}:${index + 1} loads external stylesheet via @import: ${importMatch[1]}`);
+    }
+    cssUrlPattern.lastIndex = 0;
+    let urlMatch;
+    while ((urlMatch = cssUrlPattern.exec(line))) {
+      failures.push(`${relativePath}:${index + 1} loads external resource via url(): ${urlMatch[1]}`);
+    }
+  });
+}
+
 // 1. src/**/*.{js,jsx} — runtime network API scan.
-const sourceFiles = await walkSourceFiles(path.join(root, "src"));
+const sourceFiles = await walkSourceFiles(path.join(root, "src"), [".js", ".jsx"]);
 for (const file of sourceFiles) {
   const relative = path.relative(root, file);
   const content = await readFile(file, "utf8");
   scanRuntimeApis(relative, content);
+}
+
+// 1b. src/**/*.css — external stylesheet/resource scan (@import, url()).
+const cssFiles = await walkSourceFiles(path.join(root, "src"), [".css"]);
+for (const file of cssFiles) {
+  const relative = path.relative(root, file);
+  const content = await readFile(file, "utf8");
+  scanCssExternalResources(relative, content);
 }
 
 // 2. app.html — runtime network API scan plus external resource-tag scan.
@@ -115,6 +167,7 @@ console.log(JSON.stringify({
   checked: "network-gate",
   scanned: {
     sourceFiles: sourceFiles.length,
+    cssFiles: cssFiles.length,
     appHtml: true,
     builtArtifact: existsSync(builtIndexPath)
   }

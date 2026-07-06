@@ -133,6 +133,36 @@ page.on("console", (msg) => {
   }
 });
 
+// ─── Export-blob capture (CSV zip + PDF) ───────────────────────────────────────
+// fin-8fb.11: this harness previously drove every primary screen but never the
+// CSV/PDF export flows — the exact code paths that pull in jszip and jsPDF
+// (jsPDF carries a dead CDN-injection code path upstream). Capture the blob at
+// URL.createObjectURL so STEP 7/8 below can confirm each export actually ran,
+// while the request-interception net from above is already watching for any
+// egress attempt made during that flow (jsPDF font loading, jszip, etc).
+// Must be registered before the initial page.goto() so it applies on load.
+await page.evaluateOnNewDocument(() => {
+  window.__offlineCsvBytes = null;
+  window.__offlinePdfBytes = null;
+  const origCreateObjectURL = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = function (obj) {
+    try {
+      if (obj instanceof Blob && obj.size > 100) {
+        obj.arrayBuffer().then((buf) => {
+          const bytes = new Uint8Array(buf);
+          const isZip = bytes[0] === 0x50 && bytes[1] === 0x4B; // "PK"
+          const isPdf = bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46; // "%PDF"
+          if (isZip && !window.__offlineCsvBytes) window.__offlineCsvBytes = Array.from(bytes);
+          if (isPdf && !window.__offlinePdfBytes) window.__offlinePdfBytes = Array.from(bytes);
+        }).catch(() => {});
+      }
+    } catch {
+      // Never let capture-plumbing errors break the download itself.
+    }
+    return origCreateObjectURL(obj);
+  };
+});
+
 // NOTE: We do NOT use Network.emulateNetworkConditions offline=true because that
 // also blocks the local server (127.0.0.1). Instead, request interception above
 // serves as the offline gate: it aborts all non-local requests and records them
@@ -291,7 +321,115 @@ if (privacyText) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 7: Assert zero outbound network requests
+// STEP 7: CSV export — drive the jszip export path under interception
+// ─────────────────────────────────────────────────────────────────────────────
+// fin-8fb.11: the CSV export (exportCsvZip → JSZip) and PDF export
+// (buildPdfReport → jsPDF) are dynamically imported and never previously
+// exercised by this offline gate, which only drove screen renders. Both
+// libraries are third-party bundle surface; this step proves that clicking
+// through the real export flow produces zero network egress, not just that
+// the static source never mentions fetch()/XHR (see scripts/network-gate.mjs
+// for that static half of the guarantee).
+console.log("\n[offline-load] Triggering CSV export (jszip path)...");
+
+const requestsBeforeCsv = outboundAttempts.length;
+let csvClicked = null;
+for (let attempt = 0; attempt < 3 && !csvClicked; attempt++) {
+  csvClicked = await page.evaluate(() => {
+    const btn = document.querySelector('.actions button[title="Export CSV"]')
+      || [...document.querySelectorAll(".actions button")].find((b) => !b.disabled && /\bCSV\b/i.test((b.textContent || "").trim()));
+    if (!btn) return null;
+    btn.click();
+    return (btn.textContent || "").trim() || btn.getAttribute("title");
+  });
+  if (!csvClicked) await new Promise((r) => setTimeout(r, 1500));
+}
+
+if (csvClicked) {
+  try {
+    await page.waitForFunction(
+      () => Array.isArray(window.__offlineCsvBytes) && window.__offlineCsvBytes.length > 100,
+      { timeout: 20000, polling: 200 }
+    );
+    pass(`CSV export triggered ("${csvClicked}") and ZIP blob captured (jszip path exercised)`);
+  } catch (e) {
+    fail("CSV export was clicked but no ZIP blob was captured within 20s", e.message);
+  }
+} else {
+  fail("No enabled CSV export button found — export flow was never exercised");
+}
+
+const requestsAfterCsv = outboundAttempts.length;
+if (requestsAfterCsv === requestsBeforeCsv) {
+  pass("Zero network requests attempted during CSV export");
+} else {
+  fail(`${requestsAfterCsv - requestsBeforeCsv} network request(s) attempted during CSV export`,
+    outboundAttempts.slice(requestsBeforeCsv).map((r) => r.url).join(", "));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 8: PDF export — drive the jsPDF export path under interception
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF export is additionally gated on the slow-tier Monte Carlo having
+// settled at least once for the active plan (src/main.jsx exportBlocked —
+// fin-c96.15). Headless Chrome can take much longer than production Chrome
+// to settle the slow tier (see waitForModelIdle's includeSlow comments
+// above); wait tolerantly for window.__FIN_MC_SAMPLES_SETTLED__, mirroring
+// tests/e2e/pdf-export-regression.mjs, and skip (not fail) the export-specific
+// checks if it genuinely never settles in this environment — the request
+// interception net above still covers whatever partial flow did run.
+console.log("\n[offline-load] Waiting for MC slow-tier settle (up to 30s, tolerant)...");
+const mcSettled = await page.waitForFunction(
+  () => (Number(window.__FIN_MC_SAMPLES_SETTLED__) || 0) > 0,
+  { timeout: 30000, polling: 200 },
+).then(() => true).catch(() => false);
+
+if (!mcSettled) {
+  console.log("  [info] MC slow-tier did not settle within 30s — PDF export gate may still be closed; attempting click anyway (tolerant).");
+}
+
+console.log("[offline-load] Triggering PDF export (jsPDF path)...");
+const requestsBeforePdf = outboundAttempts.length;
+let pdfClicked = null;
+for (let attempt = 0; attempt < 3 && !pdfClicked; attempt++) {
+  pdfClicked = await page.evaluate(() => {
+    const btn = document.querySelector('.actions button[title="Export PDF"]')
+      || [...document.querySelectorAll(".actions button")].find((b) => !b.disabled && /\bPDF\b/i.test((b.textContent || "").trim()));
+    if (!btn) return null;
+    btn.click();
+    return (btn.textContent || "").trim() || btn.getAttribute("title");
+  });
+  if (!pdfClicked) await new Promise((r) => setTimeout(r, 1500));
+}
+
+if (pdfClicked) {
+  try {
+    await page.waitForFunction(
+      () => Array.isArray(window.__offlinePdfBytes) && window.__offlinePdfBytes.length > 1000,
+      { timeout: 60000, polling: 200 }
+    );
+    pass(`PDF export triggered ("${pdfClicked}") and PDF blob captured (jsPDF path exercised)`);
+  } catch (e) {
+    fail("PDF export was clicked but no PDF blob was captured within 60s", e.message);
+  }
+} else if (mcSettled) {
+  // MC settled but the button was still never enabled/found — that is a
+  // genuine finding, not an environment limitation.
+  fail("No enabled PDF export button found after MC settled — export flow was never exercised");
+} else {
+  console.log("  [info] No enabled PDF export button found and MC never settled in this environment — PDF export step tolerated, not counted as failure.");
+}
+
+const requestsAfterPdf = outboundAttempts.length;
+if (requestsAfterPdf === requestsBeforePdf) {
+  pass("Zero network requests attempted during PDF export");
+} else {
+  fail(`${requestsAfterPdf - requestsBeforePdf} network request(s) attempted during PDF export`,
+    outboundAttempts.slice(requestsBeforePdf).map((r) => r.url).join(", "));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 9: Assert zero outbound network requests (cumulative, whole session)
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n[offline-load] Verifying zero outbound network requests...");
 
@@ -309,7 +447,7 @@ if (externalAttempts.length === 0) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 8: Assert no console errors referencing network APIs
+// STEP 10: Assert no console errors referencing network APIs
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n[offline-load] Checking console errors...");
 

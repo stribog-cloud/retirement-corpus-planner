@@ -5043,6 +5043,14 @@ function useRetirementDashboard() {
   const importScenarioSnapshot = async (file) => {
     if (!requireFreshAnalytics("importing saved scenarios")) return;
     try {
+      // fin-8fb.11: reject oversized files before reading/parsing — an
+      // unbounded JSON.parse(await file.text()) on a huge file can hang or
+      // crash the tab. A saved scenario snapshot is a few KB; 2 MB is a
+      // generous ceiling with headroom.
+      const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
+      if (file.size > MAX_IMPORT_BYTES) {
+        throw new Error(`File is too large to import (max 2 MB, got ${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
+      }
       const payload = JSON.parse(await file.text());
       const rawSnapshot = payload.snapshot || payload;
       if (!rawSnapshot?.state) throw new Error("No saved plan state found in the JSON file.");
