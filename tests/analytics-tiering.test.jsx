@@ -18,10 +18,13 @@
  */
 
 import { describe, expect, it, beforeEach } from "vitest";
-import { BASE, normalizeState } from "../src/model.js";
+import { BASE, normalizeState, projectionParamsFromState } from "../src/model.js";
 import {
   computeFastBundle,
   computeSlowBundle,
+  computeAnalyticsBundle,
+  buildFallbackAnalytics,
+  pendingHistoricalBacktest,
   stableJsonHash,
   makeLruCache,
   _caches
@@ -58,13 +61,14 @@ describe("computeFastBundle — shape contract", () => {
     expect(result.pending).toBe(false);
   });
 
-  it("does NOT include mc, maxMonthlyCash, or optimum fields", () => {
+  it("does NOT include mc, maxMonthlyCash, optimum, or backtest fields", () => {
     const state = makeState();
     const result = computeFastBundle(state);
     // These are slow-path fields — should not exist on the fast result
     expect(result.mc).toBeUndefined();
     expect(result.maxMonthlyCash).toBeUndefined();
     expect(result.optimum).toBeUndefined();
+    expect(result.backtest).toBeUndefined();
   });
 
   it("reports non-negative durationMs", () => {
@@ -93,6 +97,14 @@ describe("computeSlowBundle — shape contract", () => {
     expect(typeof result.mc.successProbability).toBe("number");
     expect(result.optimum).toBeDefined();
     expect(Array.isArray(result.optimum.strategies)).toBe(true);
+
+    // fin-8fb F4 — backtestEnabled defaults to 1, so the default state
+    // includes a real (non-null) backtest result with the documented shape.
+    expect(result.backtest).toBeDefined();
+    expect(typeof result.backtest.cohortCount).toBe("number");
+    expect(typeof result.backtest.successRate).toBe("number");
+    expect(Array.isArray(result.backtest.cohorts)).toBe(true);
+    expect(result.backtest.percentileBands).toBeDefined();
   });
 
   it("marks slowPending=false and pending=false", () => {
@@ -238,6 +250,108 @@ describe("MC input-hash cache — R4.9.5j fin-7ke", () => {
       computeSlowBundle(makeState({ principal: 1000000 * (i + 1), monteCarloSamples: 5 }));
     }
     expect(_caches.mc.size()).toBeLessThanOrEqual(16);
+  });
+});
+
+// ─── 4c. fin-8fb F4 — Historical Backtest Lab slow-bundle integration ───────
+describe("Historical Backtest Lab — slow-bundle integration", () => {
+  beforeEach(() => {
+    _caches.mc.clear();
+    _caches.backtest.clear();
+  });
+
+  it("computeSlowBundle includes a real backtest result when backtestEnabled=1 (default)", () => {
+    const state = makeState({ years: 25 });
+    const slow = computeSlowBundle(state);
+    expect(slow.backtest).not.toBeNull();
+    expect(slow.backtest.horizon).toBe(25);
+    expect(typeof slow.backtest.successRate).toBe("number");
+  });
+
+  it("computeSlowBundle returns backtest: null when backtestEnabled=0", () => {
+    const state = makeState({ backtestEnabled: 0 });
+    const slow = computeSlowBundle(state);
+    expect(slow.backtest).toBeNull();
+  });
+
+  it("second computeSlowBundle call with identical state returns the SAME backtest object (cache hit)", () => {
+    const state = makeState({ years: 20 });
+    const slow1 = computeSlowBundle(state);
+    const slow2 = computeSlowBundle(state);
+    expect(slow2.backtest).toBe(slow1.backtest);
+  });
+
+  it("cache miss when backtest-relevant inputs change (years alters the cohort horizon)", () => {
+    const state1 = makeState({ years: 20 });
+    const state2 = makeState({ years: 21 });
+    const slow1 = computeSlowBundle(state1);
+    const slow2 = computeSlowBundle(state2);
+    expect(slow2.backtest).not.toBe(slow1.backtest);
+    expect(slow2.backtest.horizon).toBe(21);
+    expect(slow1.backtest.horizon).toBe(20);
+  });
+
+  it("backtest cache is bounded to 16 entries", () => {
+    for (let i = 0; i < 20; i++) {
+      computeSlowBundle(makeState({ principal: 1000000 * (i + 1) }));
+    }
+    expect(_caches.backtest.size()).toBeLessThanOrEqual(16);
+  });
+
+  it("computeAnalyticsBundle (legacy full/worker bundle) includes backtest when enabled, null when disabled", () => {
+    const enabled = computeAnalyticsBundle(makeState({ years: 15 }));
+    expect(enabled.backtest).not.toBeNull();
+    expect(enabled.backtest.horizon).toBe(15);
+
+    const disabled = computeAnalyticsBundle(makeState({ backtestEnabled: 0 }));
+    expect(disabled.backtest).toBeNull();
+  });
+
+  it("buildFallbackAnalytics includes a pending backtest placeholder when enabled, null when disabled", () => {
+    const enabledState = makeState({ years: 12 });
+    const enabledParams = projectionParamsFromState(enabledState);
+    const enabledFallback = buildFallbackAnalytics(enabledState, enabledParams, undefined);
+    expect(enabledFallback.backtest).not.toBeNull();
+    expect(enabledFallback.backtest.cohortCount).toBe(0);
+    expect(enabledFallback.backtest.horizon).toBe(12);
+
+    const disabledState = makeState({ backtestEnabled: 0 });
+    const disabledFallback = buildFallbackAnalytics(disabledState, projectionParamsFromState(disabledState), undefined);
+    expect(disabledFallback.backtest).toBeNull();
+  });
+
+  it("buildFallbackAnalytics topup/monthlyTarget/annualRate edge branches (zero-valued inputs)", () => {
+    // monthlyTarget=0 and annualRate=0 exercise the `|| 0` fallback side of
+    // each expression; a target already met exercises the topup=0 side.
+    const zeroState = makeState({ monthlyTarget: 0, annualRate: 0, targetCorpus: 1, principal: 1000000000 });
+    const zeroParams = projectionParamsFromState(zeroState);
+    const fallback = buildFallbackAnalytics(zeroState, zeroParams, undefined);
+    expect(fallback.requiredReturn).toBe(0);
+    expect(fallback.topup).toBe(0); // huge principal already clears the tiny target
+    expect(Number.isFinite(fallback.requiredCorpusForCash)).toBe(true);
+  });
+});
+
+describe("pendingHistoricalBacktest — direct branch coverage", () => {
+  it("reports successRate 1 when targetCorpus is 0 (mirrors pendingMonteCarlo's always-1 convention)", () => {
+    const result = pendingHistoricalBacktest({ years: 10, targetCorpus: 0 }, { final: { closing: 500 }, rows: [{ closing: 500 }] });
+    expect(result.successRate).toBe(1);
+    expect(result.cohortCount).toBe(0);
+    expect(result.horizon).toBe(10);
+  });
+
+  it("reports successRate 1 when targetCorpus > 0 and closing meets it, 0 when it falls short", () => {
+    const met = pendingHistoricalBacktest({ years: 5, targetCorpus: 1000 }, { final: { closing: 1200 }, rows: [] });
+    expect(met.successRate).toBe(1);
+    const short = pendingHistoricalBacktest({ years: 5, targetCorpus: 1000 }, { final: { closing: 800 }, rows: [] });
+    expect(short.successRate).toBe(0);
+  });
+
+  it("degrades gracefully when model is undefined (no rows/final)", () => {
+    const result = pendingHistoricalBacktest({ years: 5, targetCorpus: 0 }, undefined);
+    expect(result.percentileBands.p10).toEqual([]);
+    expect(result.percentileBands.p50).toEqual([]);
+    expect(result.percentileBands.p90).toEqual([]);
   });
 });
 

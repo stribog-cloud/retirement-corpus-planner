@@ -4,8 +4,8 @@ created: 2026-05-12
 updated: 2026-07-06
 type: project/developer-doc
 status: governing-reference
-version: "2.4.0"
-revision: 12
+version: "2.5.0"
+revision: 13
 last_updated: 2026-07-06
 tags: [developer-docs, public-surface]
 project: fin-dashboard
@@ -95,6 +95,7 @@ Public release is blocked until `docs/internal/PUBLIC-RELEASE-READINESS.md` is c
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 2.5.0 | 13 | 2026-07-06 | fin-8fb F4: `src/model.js` gained four new internal-stable exports — `calculateHistoricalBacktest`, `historicalReturnOverrideForYear`, `cumulativeInflationFactor`, `historicalInflationRateForYear` — supporting the Historical Backtest Lab engine (see model-contract.md §5.1); `src/analytics.js` gained one new internal-stable export, `pendingHistoricalBacktest`. Normalized state gained two additive fields, `backtestEnabled` (default 1) and `backtestUseHistoricalInflation` (default 0). `computeSlowBundle`/`computeAnalyticsBundle` gained an additive `backtest` field (`null` when disabled). No existing field removed or renamed; no change to the exports-as-one-bucket posture. The UI card, toggle, and `MODEL_DEBUG_API` exposure are phase 2 and not yet part of the public surface. |
 | 2.4.0 | 12 | 2026-07-06 | fin-8fb F3: `src/model.js` gained two new internal-stable exports, `sanitizePlannedLumpSums` and `resolvePlannedLumpSums`, supporting the multi-goal planned lump sums change (see model-contract.md §4.2). Normalized state gained an additive `plannedLumpSums` array field (legacy `plannedLumpSumAmount`/`plannedLumpSumYear`/`plannedLumpSumInflate` fields remain, unchanged, for back-compat loading); `householdPlanProfile` gained an additive `plannedLumpSums` field, scoped to `useHouseholdPlan` same as the legacy triple. No existing field removed or renamed; no change to the exports-as-one-bucket posture. |
 | 2.3.0 | 11 | 2026-07-06 | fin-8fb F2: `src/model.js` gained one new internal-stable export, `resolveDynamicSpending`, supporting the dynamic withdrawal rules change (see model-contract.md §4.1). Yearly ledger rows from `calculateSwpPlan`/`calculateInterestPlan`/`calculateIdcwPlan` gained two additive fields, `spendingMultiplier` and `guardrailAction` — additive only, no existing field removed or renamed. No change to the exports-as-one-bucket posture. |
 | 2.2.0 | 10 | 2026-07-06 | fin-8fb F1: `src/model.js` gained two new internal-stable exports, `assessmentYearForProjectionYear` and `applyYearEndCarryForward`, supporting the §74 carry-forward-live-in-projections change (see model-contract.md §3.1). No change to the exports-as-one-bucket posture. |

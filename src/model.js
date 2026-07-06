@@ -9,6 +9,13 @@ import {
   withdrawalRateBand,
   withdrawalRateForState
 } from "./planning.js";
+// fin-8fb F4 — Historical Backtest Lab: the bundled India fiscal-year return
+// series is a pure, deterministic data module (no browser/React dependency),
+// so importing it here keeps calculateHistoricalBacktest's default dataset
+// argument self-contained. src/model.js already imports from ./planning.js —
+// it is not an import-free module — so this does not change its purity
+// posture (see docs/developer/architecture.md and tests/domain-contract.test.mjs).
+import { INDIA_ANNUAL_RETURNS } from "./data/india-annual-returns.js";
 
 const DEFAULT_TAX_LAW = {
   version: "FY 2025-26 / AY 2026-27 baseline",
@@ -189,6 +196,13 @@ const BASE = {
   guardrailAdjustPct: 10,
   percentOfCorpusRate: 5,
   spendingFloorMonthly: 0,
+  // fin-8fb F4 — Historical Backtest Lab. backtestEnabled defaults on (the
+  // compute is deterministic and cheap relative to Monte Carlo); the
+  // historical-inflation replacement defaults off so default projections
+  // keep the user's single assumed inflation rate (mixed real-return /
+  // assumed-inflation mode is documented as planning-grade).
+  backtestEnabled: 1,
+  backtestUseHistoricalInflation: 0,
   costBasisPct: 75,
   legacyHoldingYears: 3,
   idcwYield: 6,
@@ -328,7 +342,9 @@ const NUMERIC_FIELDS = new Set([
   "guardrailBandPct",
   "guardrailAdjustPct",
   "percentOfCorpusRate",
-  "spendingFloorMonthly"
+  "spendingFloorMonthly",
+  "backtestEnabled",
+  "backtestUseHistoricalInflation"
 ]);
 
 function clamp(value, min, max) {
@@ -574,6 +590,56 @@ function paramsForProjectionYear(params = {}, year = 1) {
     ...glideParams,
     annualRate: Number.isFinite(Number(override.annualRate)) ? Number(override.annualRate) : glideParams.annualRate
   };
+}
+
+// fin-8fb F4 — Historical Backtest Lab: optional per-year historical
+// inflation override. `params.sequenceInflationOverrides` is an array of
+// per-projection-year inflation percentages (index 0 = year 1's rate),
+// mirroring the `sequenceReturnOverrides` plumbing used for equity/debt
+// returns above. It is absent for every existing caller (Monte Carlo,
+// goldens, UI, default projections) — only calculateHistoricalBacktest sets
+// it when `backtestUseHistoricalInflation === 1`. `yearsElapsed` may be
+// fractional (used by SWP's monthly loop and buildMonthlyLedger's per-month
+// synthesis); a whole year's contribution always uses that year's own
+// override rate, and any fractional remainder compounds at the rate of the
+// year currently in progress, so the function is continuous across year
+// boundaries. When the override array is absent this degrades to the exact
+// pre-existing `Math.pow(1 + inflation, yearsElapsed)` expression byte-for-
+// byte, so every caller that never sets sequenceInflationOverrides keeps
+// identical floating-point output.
+function cumulativeInflationFactor(params, yearsElapsed) {
+  const inflation = (Number(params.inflation) || 0) / 100;
+  const overrides = Array.isArray(params.sequenceInflationOverrides) ? params.sequenceInflationOverrides : null;
+  if (!overrides || !overrides.length) return Math.pow(1 + inflation, yearsElapsed);
+  const safeYears = Math.max(0, Number(yearsElapsed) || 0);
+  const wholeYears = Math.floor(safeYears);
+  const frac = safeYears - wholeYears;
+  let factor = 1;
+  for (let y = 1; y <= wholeYears; y++) {
+    const idx = Math.min(y, overrides.length) - 1;
+    const rate = Number.isFinite(Number(overrides[idx])) ? Number(overrides[idx]) / 100 : inflation;
+    factor *= (1 + rate);
+  }
+  if (frac > 0) {
+    const idx = Math.min(wholeYears + 1, overrides.length) - 1;
+    const rate = Number.isFinite(Number(overrides[idx])) ? Number(overrides[idx]) / 100 : inflation;
+    factor *= Math.pow(1 + rate, frac);
+  }
+  return factor;
+}
+
+// fin-8fb F4 — the marginal (single-year, non-cumulative) historical
+// inflation rate for one projection year, used by resolveDynamicSpending's
+// guardrails held-inflation-factor step (which advances one compounding step
+// at a time rather than recomputing a fresh cumulative factor). Degrades to
+// the plain assumed rate when no override is present.
+function historicalInflationRateForYear(params, year) {
+  const inflation = (Number(params.inflation) || 0) / 100;
+  const overrides = Array.isArray(params.sequenceInflationOverrides) ? params.sequenceInflationOverrides : null;
+  if (!overrides || !overrides.length) return inflation;
+  const idx = Math.min(Math.max(1, Math.round(Number(year) || 1)), overrides.length) - 1;
+  const rate = Number(overrides[idx]);
+  return Number.isFinite(rate) ? rate / 100 : inflation;
 }
 
 function annualPortfolioIncomeRate(params) {
@@ -1689,7 +1755,10 @@ function resolveDynamicSpending({
   // guardrails
   const bandPct = Math.max(0, Number(params.guardrailBandPct) || 0) / 100;
   const adjustPct = clamp(Number(params.guardrailAdjustPct) || 0, 0, 100) / 100;
-  const inflationRate = Number(params.inflateWithdrawals) === 1 ? (Number(params.inflation) || 0) / 100 : 0;
+  // fin-8fb F4: uses the historical per-year rate when
+  // sequenceInflationOverrides is set (backtest), else the plain assumed
+  // rate — identical to pre-F4 behavior when no override is present.
+  const inflationRate = Number(params.inflateWithdrawals) === 1 ? historicalInflationRateForYear(params, year) : 0;
   // One more compounding step on top of last year's actually-applied factor
   // (not a fresh Math.pow(1+g, year-1) recompute) so a prior freeze is a
   // permanent, non-catch-up reduction. Year 1 has no prior state to step
@@ -1734,7 +1803,6 @@ function calculateInterestPlan(params) {
   const years = Math.round(Number(params.years) || 0);
   const effYield = effectiveYield(params);
   const withdrawalShare = (Number(params.withdrawRate) || 0) / 100;
-  const inflation = (Number(params.inflation) || 0) / 100;
   const baseTax = yearlyTax(Number(params.principal) || 0, params);
   const taxShare = baseTax.interest > 0 ? baseTax.tax / baseTax.interest : 0;
   const baseContribution = Number(params.annualContribution) || 0;
@@ -1769,10 +1837,13 @@ function calculateInterestPlan(params) {
     const taxCalc = yearlyTax(opening, yearParams);
     const interest = taxCalc.interest;
     const availableIncome = Math.max(0, taxCalc.spendableIncome ?? (taxCalc.realizedIncome - taxCalc.tax));
-    // δ=1: withdrawal inflation factor uses (1+g)^(year-1) so Year-1 = base (uninflated)
-    const withdrawalInflationFactor = Math.pow(1 + inflation, year - 1);
+    // δ=1: withdrawal inflation factor uses (1+g)^(year-1) so Year-1 = base
+    // (uninflated). fin-8fb F4: routes through cumulativeInflationFactor so a
+    // backtest cohort's sequenceInflationOverrides compounds year-by-year;
+    // degrades to the exact pre-F4 Math.pow expression otherwise.
+    const withdrawalInflationFactor = cumulativeInflationFactor(params, year - 1);
     // real-corpus deflation factor stays (1+g)^year
-    const inflationFactor = Math.pow(1 + inflation, year);
+    const inflationFactor = cumulativeInflationFactor(params, year);
     let targetAnnual;
     let spendingMultiplier = 1;
     let guardrailAction = "none";
@@ -2183,7 +2254,6 @@ function finalizeModel(rows, params, effYield, cumWithdrawals, cumTax, cumContri
 
 function calculateSwpPlan(params) {
   const years = Math.round(Number(params.years) || 0);
-  const inflation = (Number(params.inflation) || 0) / 100;
   const equityShare = Number(params.useAssetReturns) === 1 ? (Number(params.equityShare) || 0) / 100 : 0;
   const principal = Number(params.principal) || 0;
   const buckets = {
@@ -2222,7 +2292,7 @@ function calculateSwpPlan(params) {
     // resolveDynamicSpending's rule math (yearDynamic stays null) so the
     // month loop below takes the identical targetMonthlyCashForMonth call it
     // always has, guaranteeing byte-for-byte parity at default state.
-    const yearNaturalInflationFactor = Math.pow(1 + inflation, year - 1);
+    const yearNaturalInflationFactor = cumulativeInflationFactor(params, year - 1);
     let yearDynamic = null;
     let spendingMultiplier = 1;
     let guardrailAction = "none";
@@ -2273,10 +2343,13 @@ function calculateSwpPlan(params) {
       const equityGrowth = growBucket(buckets.equity);
       const debtGrowth = growBucket(buckets.debt);
       const interest = equityGrowth + debtGrowth;
-      // δ=1: withdrawal inflation factor uses (monthIndex-1)/12 so Month-1 = base (uninflated)
-      const withdrawalInflationFactor = Math.pow(1 + inflation, (monthIndex - 1) / 12);
+      // δ=1: withdrawal inflation factor uses (monthIndex-1)/12 so Month-1 = base
+      // (uninflated). fin-8fb F4: cumulativeInflationFactor compounds whole
+      // historical years then the in-progress year's rate for the fractional
+      // remainder; degrades to the exact pre-F4 Math.pow expression otherwise.
+      const withdrawalInflationFactor = cumulativeInflationFactor(params, (monthIndex - 1) / 12);
       // real-corpus deflation uses full monthIndex/12
-      const inflationFactor = Math.pow(1 + inflation, monthIndex / 12);
+      const inflationFactor = cumulativeInflationFactor(params, monthIndex / 12);
       // fin-8fb F2: guardrails derives the monthly target from the
       // year-resolved annual figure, re-applying the SAME within-year
       // continuous escalation ratio that targetMonthlyCashForMonth already
@@ -2402,12 +2475,12 @@ function calculateSwpPlan(params) {
         lastMonthRow.netInterest += yearCarryForward.taxBenefit;
         lastMonthRow.taxableGain = Math.max(0, lastMonthRow.taxableGain - yearCarryForward.taxableGainBenefit);
         lastMonthRow.closing += yearCarryForward.taxBenefit;
-        lastMonthRow.realClosing = lastMonthRow.closing / Math.pow(1 + inflation, year);
+        lastMonthRow.realClosing = lastMonthRow.closing / cumulativeInflationFactor(params, year);
       }
     }
 
     const closing = bucketValue(buckets.equity) + bucketValue(buckets.debt);
-    const inflationFactor = Math.pow(1 + inflation, year);
+    const inflationFactor = cumulativeInflationFactor(params, year);
     cumWithdrawals += annual.withdrawal;
     cumInterest += annual.interest;
     cumTax += annual.tax;
@@ -2459,7 +2532,6 @@ function calculateIdcwPlan(params) {
   const patched = { ...params, cashMode: params.cashMode || "monthlyTarget" };
   const years = Math.round(Number(patched.years) || 0);
   const effYield = effectiveYield(patched);
-  const inflation = (Number(patched.inflation) || 0) / 100;
   const idcwRate = (Number(patched.idcwYield) || 0) / 100;
   const rows = [];
   let closing = Number(patched.principal) || 0;
@@ -2479,10 +2551,13 @@ function calculateIdcwPlan(params) {
     const yearParams = paramsForProjectionYear(patched, year);
     const opening = closing;
     const interest = opening * effectiveYield(yearParams);
-    // δ=1: withdrawal inflation factor uses (1+g)^(year-1) so Year-1 = base (uninflated)
-    const withdrawalInflationFactor = Math.pow(1 + inflation, year - 1);
+    // δ=1: withdrawal inflation factor uses (1+g)^(year-1) so Year-1 = base
+    // (uninflated). fin-8fb F4: routes through cumulativeInflationFactor so a
+    // backtest cohort's sequenceInflationOverrides compounds year-by-year;
+    // degrades to the exact pre-F4 Math.pow expression otherwise.
+    const withdrawalInflationFactor = cumulativeInflationFactor(patched, year - 1);
     // real-corpus deflation factor stays (1+g)^year
-    const inflationFactor = Math.pow(1 + inflation, year);
+    const inflationFactor = cumulativeInflationFactor(patched, year);
     let targetAnnual;
     let spendingMultiplier = 1;
     let guardrailAction = "none";
@@ -2972,6 +3047,142 @@ function calculateMonteCarlo(params, simulations = undefined) {
     shockModel,
     glidePath,
     method: `${simulationCount} ${shockModel === "normal" ? "normal" : "fat-tail regime"} sequence-of-returns simulations using the active cash engine and ${glidePath}`
+  };
+}
+
+// fin-8fb F4 — Historical Backtest Lab. Builds one cohort's
+// sequenceReturnOverrides entry from an INDIA_ANNUAL_RETURNS-shaped row
+// ({ fy, equityNominalPct, debtNominalPct, inflationPct }), reusing the exact
+// override shape sampledReturnOverride produces for Monte Carlo — under
+// useAssetReturns the per-bucket equity/debt rates pass straight through
+// (paramsForProjectionYear + swpBucketGrowthRate/annualPortfolioRate apply
+// the engine's own, possibly glide-adjusted, equity/debt blend exactly as
+// they do for a live projection); otherwise the two historical rates are
+// pre-blended into a single annualRate override using the static equityShare
+// (glide paths do not apply to the single-blended-rate mode, matching
+// equityShareForYear's own short-circuit). The difference from
+// sampledReturnOverride is that the value comes from a fixed historical
+// year, not a random shock.
+function historicalReturnOverrideForYear(params, row) {
+  if (Number(params.useAssetReturns) === 1) {
+    return { equityReturn: row.equityNominalPct, debtReturn: row.debtNominalPct };
+  }
+  const equityShare = clamp((Number(params.equityShare) || 0) / 100, 0, 1);
+  return { annualRate: equityShare * row.equityNominalPct + (1 - equityShare) * row.debtNominalPct };
+}
+
+/**
+ * fin-8fb F4 — Historical Backtest Lab.
+ *
+ * Deterministic sequence-of-returns backtest: replays every historical
+ * cohort window of length `params.years` found in `dataset` (default
+ * INDIA_ANNUAL_RETURNS) through the same cash engine `calculate()` uses live,
+ * via the sequenceReturnOverrides plumbing (see historicalReturnOverrideForYear
+ * and paramsForProjectionYear). No RNG; a given (params, dataset) pair always
+ * produces byte-identical output.
+ *
+ * Cohorts: every start index i where i + horizon <= dataset.length (horizon
+ * = params.years). A dataset shorter than the requested horizon yields the
+ * documented zero-cohort shape rather than throwing.
+ *
+ * Historical inflation: when params.backtestUseHistoricalInflation === 1,
+ * each cohort's per-year inflationPct values replace the assumed
+ * params.inflation for that cohort's run via sequenceInflationOverrides,
+ * consumed by cumulativeInflationFactor with true year-by-year compounding
+ * (not a full-window average). Default 0 keeps the user's single assumed
+ * inflation rate for every cohort — a deliberate "historical returns, assumed
+ * inflation" planning-grade mixed mode.
+ *
+ * Success definition: mirrors calculateMonteCarlo's successProbability
+ * numerator exactly — a cohort counts as a success when its final closing
+ * corpus is >= targetCorpus, nothing more. `depleted`/`depletionYear` are
+ * reported separately per cohort (any row with closing <= 0) as richer
+ * diagnostics for the worst-cohort callout; they are not folded into the
+ * success/fail count so the definition stays a literal match to MC's.
+ *
+ * @param {object} params - normalized projection params (post
+ *   projectionParamsFromState); params.years is the cohort horizon.
+ * @param {Array<object>} [dataset=INDIA_ANNUAL_RETURNS] - array of
+ *   { fy, equityNominalPct, debtNominalPct, inflationPct } rows, ordered
+ *   chronologically with no gaps.
+ * @returns {object} { cohortCount, horizon, successRate, worst, best,
+ *   cohorts, percentileBands }
+ */
+function calculateHistoricalBacktest(params, dataset = INDIA_ANNUAL_RETURNS) {
+  const horizon = Math.round(Number(params.years) || 0);
+  const rows = Array.isArray(dataset) ? dataset : [];
+  const cohortCount = horizon > 0 ? Math.max(0, rows.length - horizon + 1) : 0;
+
+  if (cohortCount <= 0) {
+    return {
+      cohortCount: 0,
+      horizon,
+      successRate: 0,
+      worst: null,
+      best: null,
+      cohorts: [],
+      percentileBands: { p10: [], p50: [], p90: [] }
+    };
+  }
+
+  const useHistoricalInflation = Number(params.backtestUseHistoricalInflation) === 1;
+  const targetCorpus = Number(params.targetCorpus) || 0;
+  const yearlyClosings = Array.from({ length: horizon + 1 }, () => []);
+  const cohorts = [];
+  let successes = 0;
+
+  for (let start = 0; start <= rows.length - horizon; start++) {
+    const window = rows.slice(start, start + horizon);
+    const sequenceReturnOverrides = window.map((row) => historicalReturnOverrideForYear(params, row));
+    const cohortParams = { ...params, sequenceReturnOverrides };
+    if (useHistoricalInflation) {
+      cohortParams.sequenceInflationOverrides = window.map((row) => row.inflationPct);
+    }
+
+    const result = calculate(cohortParams);
+    const closing = result.final?.closing || 0;
+    const depletionRow = result.rows.find((row) => row.year > 0 && row.closing <= 0);
+    const depleted = Boolean(depletionRow);
+    if (closing >= targetCorpus) successes++;
+
+    for (let year = 0; year <= horizon; year++) {
+      yearlyClosings[year].push(result.rows[year]?.closing || 0);
+    }
+
+    cohorts.push({
+      startFy: window[0].fy,
+      endingCorpus: closing,
+      realEndingCorpus: result.final?.realClosing ?? closing,
+      depleted,
+      depletionYear: depleted ? depletionRow.year : null
+    });
+  }
+
+  const p10 = [];
+  const p50 = [];
+  const p90 = [];
+  for (let year = 0; year <= horizon; year++) {
+    const sorted = yearlyClosings[year].slice().sort((a, b) => a - b);
+    p10.push(quantile(sorted, 0.1));
+    p50.push(quantile(sorted, 0.5));
+    p90.push(quantile(sorted, 0.9));
+  }
+
+  const byClosing = cohorts.slice().sort((a, b) => a.endingCorpus - b.endingCorpus);
+  const worstCohort = byClosing[0];
+  const bestCohort = byClosing[byClosing.length - 1];
+  const pickSummary = (cohort) => (cohort
+    ? { startFy: cohort.startFy, endingCorpus: cohort.endingCorpus, depletionYear: cohort.depletionYear }
+    : null);
+
+  return {
+    cohortCount,
+    horizon,
+    successRate: successes / cohortCount,
+    worst: pickSummary(worstCohort),
+    best: pickSummary(bestCohort),
+    cohorts,
+    percentileBands: { p10, p50, p90 }
   };
 }
 
@@ -3526,6 +3737,10 @@ export {
   sampledReturnParams,
   calculateSequencePath,
   calculateMonteCarlo,
+  cumulativeInflationFactor,
+  historicalInflationRateForYear,
+  historicalReturnOverrideForYear,
+  calculateHistoricalBacktest,
   solveTopup,
   solveReturn,
   planCoversMonthlyCash,

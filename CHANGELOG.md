@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Historical Backtest Lab (fin-8fb F4): a new deterministic engine,
+  `calculateHistoricalBacktest(params, dataset = INDIA_ANNUAL_RETURNS)`,
+  replays every historical cohort window of length `params.years` found in
+  the bundled 35-entry India fiscal-year return dataset through the live
+  cash engine — the same `sequenceReturnOverrides` plumbing Monte Carlo uses
+  for its sequence-of-returns sampling, except the per-year return comes
+  from a fixed historical year instead of a random shock. No RNG; a given
+  `(params, dataset)` pair always produces byte-identical output. A new
+  `backtestUseHistoricalInflation` toggle (default 0, keeps the user's
+  single assumed inflation rate) replaces the assumed rate with each
+  cohort's own per-year historical inflation when enabled, compounding
+  cumulatively year-by-year (not a full-window average) via a new helper,
+  `cumulativeInflationFactor` — this required routing `calculateInterestPlan`,
+  `calculateSwpPlan`, and `calculateIdcwPlan`'s δ=1 withdrawal-inflation and
+  real-corpus-deflator math through the new helper; when no override is set
+  (every existing caller) it degrades to the exact pre-existing `Math.pow`
+  expression byte-for-byte, verified against the full pre-change test suite.
+  Success is defined identically to `calculateMonteCarlo`'s
+  `successProbability` (final closing corpus >= targetCorpus); per-cohort
+  `depleted`/`depletionYear` are reported separately as richer diagnostics.
+  A new `backtestEnabled` state field (default 1) gates a memoized `backtest`
+  field on `computeSlowBundle`/`computeAnalyticsBundle` (LRU-cached like
+  Monte Carlo, `null` when disabled). See `docs/developer/model-contract.md`
+  §5.1 for the full contract, including the dataset-injection choice and a
+  known `buildMonthlyLedger` limitation. UI integration (card, toggle,
+  P10/P50/P90 chart) is phase 2 and not part of this change.
+
 - Multi-goal planned lump sums (fin-8fb F3): a new `plannedLumpSums` array
   (up to 10 goals, each `{ id?, name, amount, year, inflate }`) replaces the
   single-goal `plannedLumpSumAmount`/`plannedLumpSumYear`/`plannedLumpSumInflate`
