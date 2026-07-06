@@ -54,6 +54,19 @@ import {
   buildMonthlyLedger,
 } from "../model.js";
 import { formatProbabilityForDisplay } from "../probability-display.js";
+import { PLANNING_VERSION } from "../planning.js";
+
+/**
+ * App build version injected at compile time by Vite's `define` plugin (fin-i65).
+ * Mirrors the guard pattern in src/exports/csv.js so the footer, PDF export, and
+ * CSV export never disagree on the shipped version string (fin-8fb.2 P1).
+ * At build time: resolves to package.json's `version` field (e.g. "1.0.0").
+ * In Vitest (no Vite define pass): falls back to PLANNING_VERSION.
+ */
+// eslint-disable-next-line no-undef
+const _appVersion = (typeof __APP_VERSION__ !== "undefined" && __APP_VERSION__)
+  ? __APP_VERSION__   // eslint-disable-line no-undef
+  : PLANNING_VERSION;
 
 /**
  * Light-theme palette mapped from `src/styles.css:1-45` `:root` block.
@@ -972,7 +985,7 @@ export async function renderCover(doc, exportContext) {
   _sB(doc, _NRM, 12, mR, mG, mB);
   doc.text("Indian retirement corpus and income planning", cx, 134, { align: "center" });
   _sS(doc, 10);
-  doc.text("v1.0.0", cx, 152, { align: "center" });
+  doc.text(`v${_appVersion}`, cx, 152, { align: "center" });
 
   // A.2 Brand identity bar — 2pt teal rule with a 60pt gold accent segment.
   // Centred 240pt wide. Stribog brand kit Phase 4 palette (teal #2f9ca8 + gold).
@@ -2329,7 +2342,7 @@ function applyAccessibilityMetadata(doc, exportContext, sectionFirstPages) {
     subject: `Structured planning report (fingerprint ${fp})`,
     author: "Self (planning tool output)",
     keywords: "retirement, planning, India, tax, SWP, corpus, income",
-    creator: "Retirement Corpus & Income Planner v1.0.0",
+    creator: `Retirement Corpus & Income Planner v${_appVersion}`,
   });
   // jspdf's setLanguage whitelists language codes and silently no-ops on
   // anything outside its built-in map (which omits "en-IN"). Write the

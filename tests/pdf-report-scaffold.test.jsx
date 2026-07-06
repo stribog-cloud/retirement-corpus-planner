@@ -40,6 +40,16 @@ import {
   __test__,
 } from "../src/exports/pdf-report.js";
 import { buildMonthlyLedger, calculate, BASE } from "../src/model.js";
+import { PLANNING_VERSION } from "../src/planning.js";
+
+// fin-8fb.2 P1: the PDF "creator" metadata now derives from package.json's
+// version via the __APP_VERSION__ Vite define (same guard as src/exports/csv.js),
+// rather than a hardcoded "v1.0.0" string. Assert against that same source of
+// truth so this test doesn't silently drift from the shipped version.
+// eslint-disable-next-line no-undef
+const EXPECTED_APP_VERSION = (typeof __APP_VERSION__ !== "undefined" && __APP_VERSION__)
+  ? __APP_VERSION__   // eslint-disable-line no-undef
+  : PLANNING_VERSION;
 
 describe("R4.9.5g PDF report scaffold — module surface", () => {
   it("USE_R4_9_5G_REPORT escape-hatch flag has been removed (fin-4ml cleanup)", () => {
@@ -172,7 +182,7 @@ describe("R4.9.5g PDF report scaffold — buildPdfReport()", () => {
     if (props) {
       expect(props.title).toBe("Retirement Corpus & Income Planner");
       expect(props.subject).toMatch(/test-fingerprint-r4-9-5g-scaffold/);
-      expect(props.creator).toMatch(/v1\.0\.0/);
+      expect(props.creator).toBe(`Retirement Corpus & Income Planner v${EXPECTED_APP_VERSION}`);
     }
     // Language setter is best-effort; assert the function existed.
     expect(typeof doc.setLanguage === "function" || doc.setLanguage === undefined).toBe(true);

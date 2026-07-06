@@ -170,6 +170,18 @@ import {
 import AnalyticsWorker from "./workers/analytics-worker.js?worker&inline";
 import { formatProbabilityForDisplay } from "./probability-display.js";
 
+/**
+ * App build version injected at compile time by Vite's `define` plugin (fin-i65).
+ * Mirrors the guard pattern in src/exports/csv.js so the footer, PDF export, and
+ * CSV export never disagree on the shipped version string (fin-8fb.2 P1).
+ * At build time: resolves to package.json's `version` field (e.g. "1.0.0").
+ * In Vitest (no Vite define pass): falls back to PLANNING_VERSION.
+ */
+// eslint-disable-next-line no-undef
+const _appVersion = (typeof __APP_VERSION__ !== "undefined" && __APP_VERSION__)
+  ? __APP_VERSION__   // eslint-disable-line no-undef
+  : PLANNING_VERSION;
+
 // ── R4.9.5b-2: PercentileSparkline helpers ─────────────────────────────────
 // fin-5g3 — pure SVG sparkline for P10/P50/P90 tiles.
 
@@ -337,6 +349,141 @@ function useDebouncedValue(value, delay = 500) {
     return () => window.clearTimeout(timer);
   }, [value, delay]);
   return debounced;
+}
+
+// ── Dialog focus management (fin-8fb.2 P4) ──────────────────────────────────
+// WCAG 2.4.3 (focus order) + 2.1.2 (no keyboard trap) for the app's aria-modal
+// surfaces: GuidedTour, HelpDrawer, AssumptionDrawer, and the first-launch
+// DisclaimerNotice consent gate. Shared by all four so they gain identical
+// open/trap/restore behaviour instead of four bespoke implementations.
+const MODAL_FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * useModalFocus(open, containerRef, options)
+ *
+ * @param {boolean} open - whether the dialog is currently open/visible.
+ * @param {React.RefObject<HTMLElement>} containerRef - ref to the dialog's
+ *   root DOM node (the element already carrying role="dialog" aria-modal).
+ * @param {object} [options]
+ * @param {React.RefObject<HTMLElement>} [options.initialFocusRef] - element to
+ *   focus on open in place of the first focusable descendant.
+ * @param {boolean} [options.returnFocus=true] - restore focus to the element
+ *   that had it before the dialog opened, once the dialog closes/unmounts.
+ * @param {() => void} [options.onClose] - called when Escape is pressed.
+ *   Omit to make the dialog Escape-proof (used by DisclaimerNotice, where
+ *   dismissal without explicit consent is not allowed).
+ * @param {*} [options.refocusKey] - when this value changes while `open` is
+ *   true, initial focus is re-applied without re-running the open/close
+ *   lifecycle (GuidedTour uses this to refocus its primary action button as
+ *   the active step changes without disturbing the captured pre-tour focus).
+ */
+function useModalFocus(open, containerRef, { initialFocusRef, returnFocus = true, onClose, refocusKey } = {}) {
+  const previouslyFocusedRef = useRef(null);
+
+  const focusInitialTarget = () => {
+    const container = containerRef.current;
+    const target = initialFocusRef?.current || container?.querySelectorAll(MODAL_FOCUSABLE_SELECTOR)[0];
+    // preventScroll avoids fighting GuidedTour's own scrollIntoView/rAF placement.
+    target?.focus?.({ preventScroll: true });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    previouslyFocusedRef.current = document.activeElement;
+    focusInitialTarget();
+    return () => {
+      if (!returnFocus) return;
+      const previous = previouslyFocusedRef.current;
+      if (previous && typeof previous.focus === "function" && document.contains(previous)) {
+        previous.focus({ preventScroll: true });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || refocusKey === undefined) return undefined;
+    focusInitialTarget();
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refocusKey]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const container = containerRef.current;
+    if (!container) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        if (!onClose) return;
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(container.querySelectorAll(MODAL_FOCUSABLE_SELECTOR));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    };
+    container.addEventListener("keydown", handleKeyDown);
+    return () => container.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+}
+
+// ── Debounced localStorage persistence (fin-8fb.2 P5) ───────────────────────
+// Unifies the four copy-pasted 250ms-debounced persist effects that used to
+// live inline in useRetirementDashboard (theme, main state bundle, layout,
+// scenarioHistory). Beyond de-duplication, this closes a real data-loss race:
+// the old effects only wrote on a timer, so an edit followed by a tab close
+// within 250ms was silently lost. flushOnHide guarantees the last pending
+// write survives `pagehide` / tab-hide / unmount.
+function useDebouncedPersist(persistFn, deps, { delay = 250, flushOnHide = true } = {}) {
+  const persistFnRef = useRef(persistFn);
+  persistFnRef.current = persistFn;
+  const timerRef = useRef(null);
+  const pendingRef = useRef(false);
+  const flushRef = useRef(() => {
+    if (!pendingRef.current) return;
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+    pendingRef.current = false;
+    persistFnRef.current();
+  });
+
+  useEffect(() => {
+    pendingRef.current = true;
+    timerRef.current = window.setTimeout(() => {
+      pendingRef.current = false;
+      timerRef.current = null;
+      persistFnRef.current();
+    }, delay);
+    return () => window.clearTimeout(timerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  useEffect(() => {
+    if (!flushOnHide) return undefined;
+    const flush = () => flushRef.current();
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      flush();
+    };
+  }, [flushOnHide]);
+
+  return flushRef.current;
 }
 
 function createAnalyticsWorker() {
@@ -786,6 +933,11 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
   const active = TOUR_STEPS[step] || TOUR_STEPS[0];
   const isLast = step >= TOUR_STEPS.length - 1;
   const [spotlight, setSpotlight] = useState(null);
+  const tourContainerRef = useRef(null);
+  const primaryActionRef = useRef(null);
+  // refocusKey=step: refocus the primary action button as the tour advances,
+  // without disturbing the pre-tour focus captured on initial open.
+  useModalFocus(open, tourContainerRef, { initialFocusRef: primaryActionRef, onClose, refocusKey: step });
   useLayoutEffect(() => {
     if (!open || !active?.selector) {
       clearTourHighlights();
@@ -891,7 +1043,7 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
     if (next?.view) onSwitchView(next.view);
   };
   return (
-    <div className={`guided-tour ${spotlight ? "is-anchored" : "is-fallback"}`} role="dialog" aria-modal="true" aria-label="Guided product tour">
+    <div ref={tourContainerRef} className={`guided-tour ${spotlight ? "is-anchored" : "is-fallback"}`} role="dialog" aria-modal="true" aria-label="Guided product tour">
       <div className="tour-backdrop" onClick={onClose} />
       <div
         className="tour-spotlight"
@@ -949,7 +1101,7 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
           <button type="button" onClick={() => onOpenHelp("tutorial")}><CircleHelp /> Open help</button>
           <button type="button" onClick={onOpenAssumptions}><Settings2 /> Assumption Studio</button>
           <button type="button" onClick={() => go(step - 1)} disabled={step === 0}>Back</button>
-          <button type="button" className="primary-action" onClick={isLast ? () => { onSwitchView("planner"); onClose(); } : () => go(step + 1)}>
+          <button ref={primaryActionRef} type="button" className="primary-action" onClick={isLast ? () => { onSwitchView("planner"); onClose(); } : () => go(step + 1)}>
             {isLast ? "Start planning" : "Next"}
           </button>
         </div>
@@ -1228,6 +1380,14 @@ function TaxLawEditor({ state, setField, openHelp }) {
   // Explicit tax-law commits are not typed input; they should be synchronous writes.
   // Strategy: read the current stored envelope (preserving preset/tableMode/activeView
   // that TaxLawEditor does not own), merge in the new taxLawJson, write back.
+  //
+  // fin-8fb.2 P5 note: this intentionally does NOT call useRetirementDashboard's
+  // shared useDebouncedPersist flush() for the STORAGE_KEY effect. That flush's
+  // persistFn closes over the parent's `state`, but apply()/reset() below call
+  // setField(...) one line above — a same-tick React state update that has not
+  // yet re-rendered when flush would run, so it would still write the OLD
+  // taxLawJson. Reading the current localStorage envelope directly and merging
+  // just this field sidesteps that staleness; the raw-write approach stays.
   const flushTaxLawToStorage = (newTaxLawJson) => {
     try {
       const envelope = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -3120,6 +3280,7 @@ function HelpDrawer({ open, topic, onClose, onStartTour, onClearSavedData, activ
     setExpandedTopic(null);
     scrollHelpReaderIntoView("auto");
   }, [open, topic]);
+  useModalFocus(open, drawerRef, { onClose });
   const active = topics[readerTopic] || topics.core;
   const coachCards = [
     { title: "I am starting fresh", detail: "Use the guided retirement path first.", topic: "coach" },
@@ -3265,9 +3426,17 @@ function HelpDrawer({ open, topic, onClose, onStartTour, onClearSavedData, activ
 }
 
 function DisclaimerNotice({ open, onAccept, onClear, onHelp }) {
+  const noticeRef = useRef(null);
+  const primaryActionRef = useRef(null);
+  // fin-8fb.2 P4: this first-launch consent gate blocks the rest of the app
+  // (see src/styles.css .disclaimer-notice-card) exactly like the other three
+  // aria-modal surfaces, but had never been marked as a dialog and had zero
+  // focus management. No `onClose` is passed to useModalFocus — Escape must
+  // not dismiss a consent gate; only the explicit "I understand" action can.
+  useModalFocus(open, noticeRef, { initialFocusRef: primaryActionRef });
   if (!open) return null;
   return (
-    <section className="disclaimer-notice-card" role="region" aria-label="Important notice">
+    <section ref={noticeRef} className="disclaimer-notice-card" role="dialog" aria-modal="true" aria-label="Important notice">
       <div className="privacy-consent-icon" aria-hidden="true"><ShieldCheck /></div>
       <div className="privacy-consent-copy disclaimer-notice-copy">
         <span>Important Notice</span>
@@ -3295,7 +3464,7 @@ function DisclaimerNotice({ open, onAccept, onClear, onHelp }) {
       <div className="privacy-consent-actions">
         <button type="button" onClick={() => onHelp("privacy")}><CircleHelp /> Details</button>
         <button type="button" onClick={onClear}><RotateCcw /> Clear saved data</button>
-        <button type="button" className="primary" onClick={onAccept}><Sparkles /> I understand</button>
+        <button ref={primaryActionRef} type="button" className="primary" onClick={onAccept}><Sparkles /> I understand</button>
       </div>
     </section>
   );
@@ -3304,6 +3473,8 @@ function DisclaimerNotice({ open, onAccept, onClear, onHelp }) {
 function AssumptionDrawer({ open, state, outputState = state, setField, onClose, openHelp, onClearSavedData }) {
   const [activeSection, setActiveSection] = useState("household");
   const [studioQuery, setStudioQuery] = useState("");
+  const drawerRef = useRef(null);
+  useModalFocus(open, drawerRef, { onClose });
   const household = useMemo(() => householdPlanProfile(outputState), [outputState]);
   const effectiveProjectionYears = useMemo(() => {
     const params = projectionParamsFromState(outputState);
@@ -3379,7 +3550,7 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
   if (!open) return null;
   return (
     <div className="drawer-backdrop open" onClick={onClose}>
-      <aside className="assumption-drawer" role="dialog" aria-modal="true" aria-label="Assumption Studio" onClick={(event) => event.stopPropagation()}>
+      <aside ref={drawerRef} className="assumption-drawer" role="dialog" aria-modal="true" aria-label="Assumption Studio" onClick={(event) => event.stopPropagation()}>
         <button className="close-button" type="button" onClick={onClose} aria-label="Close assumptions"><X /></button>
         <div className="studio-hero">
           <div>
@@ -3907,40 +4078,32 @@ function useRetirementDashboard() {
     if (initialScenarioHistory.warning) showToast(initialScenarioHistory.warning, "reset");
   }, []);
 
-  useEffect(() => {
-    if (!storageConsent) return undefined;
-    const timer = window.setTimeout(() => {
-      const result = persistJson(THEME_KEY, theme);
-      if (!result.ok) showToast(result.warning, "reset");
-    }, 250);
-    return () => window.clearTimeout(timer);
+  // fin-8fb.2 P5: these four were copy-pasted 250ms-debounced setTimeout
+  // effects; useDebouncedPersist unifies them and additionally flushes any
+  // pending write on pagehide/tab-hide/unmount, closing the race where an
+  // edit followed by a tab close within 250ms was silently lost.
+  useDebouncedPersist(() => {
+    if (!storageConsent) return;
+    const result = persistJson(THEME_KEY, theme);
+    if (!result.ok) showToast(result.warning, "reset");
   }, [storageConsent, theme]);
 
-  useEffect(() => {
-    if (!storageConsent) return undefined;
-    const timer = window.setTimeout(() => {
-      const result = persistJson(STORAGE_KEY, { state, preset, tableMode, activeView });
-      if (!result.ok) showToast(result.warning, "reset");
-    }, 250);
-    return () => window.clearTimeout(timer);
+  useDebouncedPersist(() => {
+    if (!storageConsent) return;
+    const result = persistJson(STORAGE_KEY, { state, preset, tableMode, activeView });
+    if (!result.ok) showToast(result.warning, "reset");
   }, [storageConsent, state, preset, tableMode, activeView]);
 
-  useEffect(() => {
-    if (!storageConsent) return undefined;
-    const timer = window.setTimeout(() => {
-      const result = persistJson(LAYOUT_KEY, layout);
-      if (!result.ok) showToast(result.warning, "reset");
-    }, 250);
-    return () => window.clearTimeout(timer);
+  useDebouncedPersist(() => {
+    if (!storageConsent) return;
+    const result = persistJson(LAYOUT_KEY, layout);
+    if (!result.ok) showToast(result.warning, "reset");
   }, [storageConsent, layout]);
 
-  useEffect(() => {
-    if (!storageConsent) return undefined;
-    const timer = window.setTimeout(() => {
-      const result = persistScenarioHistory(scenarioHistory);
-      if (!result.ok) showToast(result.warning, "reset");
-    }, 250);
-    return () => window.clearTimeout(timer);
+  useDebouncedPersist(() => {
+    if (!storageConsent) return;
+    const result = persistScenarioHistory(scenarioHistory);
+    if (!result.ok) showToast(result.warning, "reset");
   }, [storageConsent, scenarioHistory]);
 
   const resetLayout = () => {
@@ -6882,7 +7045,7 @@ function DashboardShell() {
 	            <section className={`main-stack page-surface view-${activeView} ${modelPending ? "model-pending" : ""} ${analyticsPending ? "analytics-pending" : ""}`} data-active-view={activeView} data-analytics-pending={analyticsPending ? "true" : "false"} data-analytics-slow-pending={immediateMcSimulations === 0 ? "true" : "false"} data-analytics-error={analyticsError}>
               <DashboardPages />
               <footer className="app-footer app-disclaimer-footer" aria-label="Application footer">
-                <span>Retirement Corpus & Income Planner · Planning tool · not financial/tax advice · v1.0.0 · MIT · </span>
+                <span>Retirement Corpus & Income Planner · Planning tool · not financial/tax advice · v{_appVersion} · MIT · </span>
                 <a href="https://github.com/stribog-cloud/retirement-corpus-planner" target="_blank" rel="noopener noreferrer">
                   github.com/stribog-cloud/retirement-corpus-planner
                 </a>
@@ -7265,5 +7428,8 @@ export {
   taxRuleLabel,
   effectiveMonthlyWithdrawal,
   toastDurationMs,
-  calcSparklineTicks
+  calcSparklineTicks,
+  useModalFocus,
+  MODAL_FOCUSABLE_SELECTOR,
+  useDebouncedPersist
 };
