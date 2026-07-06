@@ -32,7 +32,11 @@ function startServer() {
 
 async function dismissTour(page) {
   await page.evaluate(() => {
-    const privacy = document.querySelector(".privacy-consent-card");
+    // R4.5b renamed .privacy-consent-card → .disclaimer-notice-card; keep the
+    // legacy fallback like the e2e harnesses do. If the disclaimer is not
+    // dismissed, its modal backdrop blocks navigation clicks on slower CI
+    // runners (passed locally only by racing ahead of the overlay).
+    const privacy = document.querySelector(".disclaimer-notice-card") || document.querySelector(".privacy-consent-card");
     if (!privacy) return;
     [...privacy.querySelectorAll("button")].find((button) => /understand/i.test(button.textContent))?.click();
   });
