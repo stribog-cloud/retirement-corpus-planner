@@ -1,12 +1,12 @@
 ---
 title: "Model and Planning Contract"
 created: 2026-05-15
-updated: 2026-05-18
+updated: 2026-07-06
 type: project/developer-doc
 status: governing-reference
-version: "1.3.0"
-revision: 5
-last_updated: 2026-05-18
+version: "1.4.0"
+revision: 6
+last_updated: 2026-07-06
 tags: [developer-docs, model, tax, planning, contract]
 project: fin-dashboard
 owners: [msambare]
@@ -61,6 +61,63 @@ Tax logic separates:
 - Rebate, cess, surcharge/relief, TDS timing, and NRI withholding timing.
 
 Do not use a flat marginal rate path unless the user explicitly selects a legacy/manual stress mode. Retiree-profile tax must keep slab income and special-rate gains separate.
+
+### 3.1 §74 Capital-Loss Carry-Forward — Live In Projections (fin-8fb F1)
+
+The 8-year FIFO carry-forward pool (`applyAndUpdateCarryForwardPool` /
+`netCapitalGainStreams`, §74(1)-(3)) is a correct single-call primitive:
+given a `params.carryForwardPool` and a set of streams, it applies prior
+losses correctly (STCL → STCG → residual LTCG; LTCL → LTCG only) and
+records the residual loss for future use. Since 2026-07-06 it is also
+threaded live across projection years, not just available as an isolated
+primitive.
+
+**Mechanism — one commit per projection year, never inside the monthly hot
+path.** `calculateSwpPlan` and `calculateInterestPlan` each hold a pool
+(`{ stclPool: [], ltclPool: [] }`) local to that single run/path — it is
+never attached to the shared `params` object, so it cannot leak between
+runs, and it resets automatically for every Monte Carlo path (each path
+calls `calculate()` fresh). At the end of each projection year,
+`applyYearEndCarryForward(pool, yearParams, finalStreams, year)` runs
+exactly once: it compares a pool-free tax profile against a pool-attached
+tax profile computed on the SAME year-end aggregated streams, and the
+pool-attached call is the sole point that mutates the pool (expires entries
+older than 8 assessment years, consumes them against this year's gains,
+then records this year's residual loss). The assessment year advances one
+per projection year, anchored at AY 2026-27 for year 1
+(`assessmentYearForProjectionYear`).
+
+This one-commit-per-year design is deliberate: `previewLotSale` /
+`redeemNetFromBucket` / `estimatePrincipalSaleForNet` call the tax-profile
+machinery many times per month (bisection search over candidate sale
+amounts, plus separate before/after profile calls) to size a single
+redemption. `calculateTaxProfile` → `calculateRetireeTaxProfile` (or the
+flat/override modes) → `netCapitalGainStreams` mutates whatever pool it is
+given as a side effect of every call. Attaching a live pool to the params
+used inside that hot path would consume and record pool entries dozens of
+times over for what is logically one year's transactions — that hot path
+is therefore left completely untouched (no `carryForwardPool` key on the
+params it sees), preserving byte-identical monthly ledger numbers and the
+existing `previewLotSale` streams-identity cache exactly as before. The
+year-end true-up then feeds the resulting tax and taxable-gain adjustment
+back into that year's annual row and (for SWP) the last monthly row of the
+year, and reinvests the tax saved directly into the corpus buckets (SWP) or
+the closing-balance formula (Interest) so later years compound correctly.
+
+**Scope per engine:**
+
+| Engine | Coverage |
+|--------|----------|
+| SWP (`calculateSwpPlan`) | Full. Lot-level NAV/cost-basis sales can realize a real gain or loss; the year-end true-up applies to the full aggregated year streams. |
+| Interest (`calculateInterestPlan`) | Wired (same year-end-commit pattern), but `saleStreamsForPrincipalDrawdown` computes gain as `Math.max(0, sale - cost)` off a flat cost ratio applied to the sale amount — not NAV/lot-based — so it cannot itself realize a negative (loss) stream today. The pool therefore stays empty in practice for this engine until its sale model becomes lot/NAV-based. |
+| IDCW (`calculateIdcwPlan`) | Out of scope. This engine only realizes `normalIncome` (dividend distributions); it never populates `equityLtcg`/`equityStcg`/`listedBondLtcg`, so the §74 pool has nothing to act on. |
+
+**No UI toggle.** Carry-forward is always applied — this is a correctness
+fix (a previously-forgotten loss), not an optional feature. Plans that
+realize a capital loss during the projection window may show a lower
+projected tax and higher closing corpus than before this change; plans that
+never realize a loss (the default BASE state, and any shock-free scenario)
+are numerically unaffected, since an empty pool is a no-op.
 
 ## 4. Cash Engine Contract
 
@@ -168,6 +225,7 @@ This is the natural convention for an Indian retiree who states "I need ₹X/mon
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 1.4.0 | 6 | 2026-07-06 | fin-8fb F1: added §3.1 — §74 capital-loss carry-forward is now threaded live across projection years in `calculateSwpPlan`/`calculateInterestPlan` via a single per-year commit (`applyYearEndCarryForward`), documented per-engine scope (SWP full, Interest wired but structurally never realizes a loss today, IDCW out of scope), and the no-UI-toggle/numbers-may-improve-in-loss-scenarios rule. New exports: `assessmentYearForProjectionYear`, `applyYearEndCarryForward`. |
 | 1.3.0 | 5 | 2026-05-18 | Amendment pass (Eco): added §10 Owner-Decision Notes with three Round 3 owner decisions — §10.1 household corpus max() formula (Q-Q21-A), §10.2 δ=1 inflation convention (Q-Q05-A / Q-Q18-A), §10.3 basic-exemption setoff regime-aware conservative default (Q-Q16-A). |
 | 1.2.1 | 4 | 2026-05-18 | Aligned strategy/planning ownership with current `model.js`, `planning.js`, and `analytics.js` placement. |
 | 1.2.0 | 3 | 2026-05-16 | Added effective-parameter reconciliation contract for normalized projection params, household overrides, export snapshots, and intentionally stable percent-withdrawal surfaces. |

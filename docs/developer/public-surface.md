@@ -1,12 +1,12 @@
 ---
 title: "Retirement Planner Public Surface Map"
 created: 2026-05-12
-updated: 2026-05-17
+updated: 2026-07-06
 type: project/developer-doc
 status: governing-reference
-version: "2.1.0"
-revision: 9
-last_updated: 2026-05-17
+version: "2.2.0"
+revision: 10
+last_updated: 2026-07-06
 tags: [developer-docs, public-surface]
 project: fin-dashboard
 owners: [msambare]
@@ -95,6 +95,7 @@ Public release is blocked until `docs/internal/PUBLIC-RELEASE-READINESS.md` is c
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 2.2.0 | 10 | 2026-07-06 | fin-8fb F1: `src/model.js` gained two new internal-stable exports, `assessmentYearForProjectionYear` and `applyYearEndCarryForward`, supporting the §74 carry-forward-live-in-projections change (see model-contract.md §3.1). No change to the exports-as-one-bucket posture. |
 | 2.1.0 | 9 | 2026-05-17 | Clarified local-artifact CSP posture and the local-only test API bridge boundary. |
 | 2.0.0 | 8 | 2026-05-15 | Rebuilt public surface map with generated HTML, app surfaces, downloads, storage, source exports, command surface, and release/deprecation rules. |
 | 1.5.0 | 7 | 2026-05-14 | Added Trust Center, Scenario Library, and Adviser / CA review pack surfaces. |

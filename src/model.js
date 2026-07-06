@@ -672,6 +672,43 @@ function applyAndUpdateCarryForwardPool(pool, currentAY, grossStcg, grossLtcg, n
   };
 }
 
+// fin-8fb F1 — §74 carry-forward, live in projections.
+// AY 2026-27 anchors projection year 1; each subsequent projection year
+// advances the assessment year by one (year 2 -> AY 2027-28, etc).
+const BASE_ASSESSMENT_YEAR = 2027;
+function assessmentYearForProjectionYear(year) {
+  return BASE_ASSESSMENT_YEAR + (Math.round(Number(year) || 1) - 1);
+}
+
+// fin-8fb F1 — apply the §74 pool ONCE per projection year, at the year
+// boundary, against that year's fully-aggregated streams.
+//
+// Why once, and only here: calculateTaxProfile -> calculateRetireeTaxProfile
+// (or the flat/override modes) -> netCapitalGainStreams mutates the pool it
+// is given (expires stale entries, consumes them against this call's gains,
+// then records this call's residual loss) as a side effect of every single
+// invocation. previewLotSale/redeemNetFromBucket/estimatePrincipalSaleForNet
+// call the tax-profile machinery many times per month (bisection search on
+// candidate sale amounts, plus a separate "before" and "after" profile per
+// lot) to size a single redemption. Threading a live, mutating pool into the
+// params used by that hot path would consume/record pool entries dozens of
+// times over for what is logically one year's transactions.
+// Comparing a pool-free profile against a pool-attached profile computed on
+// the IDENTICAL final streams isolates exactly the incremental benefit of
+// carry-forward, and commits the pool mutation exactly once — the "before"
+// call never touches the pool (no carryForwardPool key), so it cannot
+// double-consume or double-record.
+function applyYearEndCarryForward(pool, yearParams, finalStreams, year) {
+  const currentAY = assessmentYearForProjectionYear(year);
+  const noPoolProfile = calculateTaxProfile(yearParams, finalStreams);
+  const pooledParams = { ...yearParams, carryForwardPool: pool, currentAY };
+  const withPoolProfile = calculateTaxProfile(pooledParams, finalStreams);
+  return {
+    taxBenefit: Math.max(0, noPoolProfile.totalTax - withPoolProfile.totalTax),
+    taxableGainBenefit: Math.max(0, noPoolProfile.taxableInvestmentIncome - withPoolProfile.taxableInvestmentIncome)
+  };
+}
+
 function netCapitalGainStreams(streams = {}, params = {}) {
   const clean = normalizeTaxStreams(streams);
   const gains = {
@@ -1494,6 +1531,10 @@ function calculateInterestPlan(params) {
   let cumInterest = 0;
   let cumTax = 0;
   let cumContributions = 0;
+  // fin-8fb F1 — §74 carry-forward pool: local to this run (never on the
+  // shared `params` object), so it resets automatically for every
+  // calculateInterestPlan invocation, including every Monte Carlo path.
+  const carryForwardPool = { stclPool: [], ltclPool: [] };
 
   rows.push({ year: 0, opening, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, cashCoverage: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, targetCash: 0 });
 
@@ -1513,7 +1554,18 @@ function calculateInterestPlan(params) {
     const sale = Number(params.allowPrincipalDrawdown) === 1
       ? estimatePrincipalSaleForNet(Math.max(0, desiredWithdrawal - incomeWithdrawal), opening, yearParams, taxCalc.streams)
       : estimatePrincipalSaleForNet(0, opening, yearParams, taxCalc.streams);
-    const tax = taxCalc.tax + sale.tax;
+    const grossTax = taxCalc.tax + sale.tax;
+    // fin-8fb F1 — §74 carry-forward true-up: applied ONCE per year, against
+    // the year's fully-aggregated streams (equity/debt income + principal-
+    // drawdown sale streams). See applyYearEndCarryForward doc comment: this
+    // engine's estimatePrincipalSaleForNet already runs its own bisection
+    // preview loop internally, so the pool must not be attached to yearParams
+    // used there — it would be mutated once per preview trial instead of once
+    // per year.
+    const yearFinalStreams = addTaxStreams(taxCalc.streams, sale.streams);
+    const yearCarryForward = applyYearEndCarryForward(carryForwardPool, yearParams, yearFinalStreams, year);
+    const tax = Math.max(0, grossTax - yearCarryForward.taxBenefit);
+    const taxableGainBenefit = yearCarryForward.taxableGainBenefit;
     const netInterest = taxCalc.realizedIncome - taxCalc.tax;
     const principalDrawdown = sale.gross;
     const withdrawal = incomeWithdrawal + sale.net;
@@ -1537,7 +1589,7 @@ function calculateInterestPlan(params) {
     cumInterest += interest;
     cumTax += tax;
     cumContributions += contribution;
-    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest, withdrawal, reinvested, contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown, taxableGain: (taxCalc.taxProfile?.taxableInvestmentIncome || 0) + sale.taxableGain, realizedGain: taxCalc.realizedIncome + sale.realizedGain, unrealizedGrowth: taxCalc.unrealizedGrowth, capitalRecovered: Math.max(0, principalDrawdown - sale.realizedGain), ltcgExemptionUsed: (taxCalc.taxProfile?.ltcgExemptionUsed || 0) + sale.ltcgExemptionUsed, basicExemptionUsed: (taxCalc.taxProfile?.basicExemptionUsed || 0) + sale.basicExemptionUsed, rebateUsed: (taxCalc.taxProfile?.rebateUsed || 0) + sale.rebateUsed, rebateLost: (taxCalc.taxProfile?.rebateLost || 0) + sale.rebateLost, section80TTBUsed: taxCalc.taxProfile?.section80TTBUsed || 0, section80TTBDisallowed: taxCalc.taxProfile?.section80TTBDisallowed || 0, grossRedemption: principalDrawdown, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual });
+    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest, withdrawal, reinvested, contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown, taxableGain: Math.max(0, (taxCalc.taxProfile?.taxableInvestmentIncome || 0) + sale.taxableGain - taxableGainBenefit), realizedGain: taxCalc.realizedIncome + sale.realizedGain, unrealizedGrowth: taxCalc.unrealizedGrowth, capitalRecovered: Math.max(0, principalDrawdown - sale.realizedGain), ltcgExemptionUsed: (taxCalc.taxProfile?.ltcgExemptionUsed || 0) + sale.ltcgExemptionUsed, basicExemptionUsed: (taxCalc.taxProfile?.basicExemptionUsed || 0) + sale.basicExemptionUsed, rebateUsed: (taxCalc.taxProfile?.rebateUsed || 0) + sale.rebateUsed, rebateLost: (taxCalc.taxProfile?.rebateLost || 0) + sale.rebateLost, section80TTBUsed: taxCalc.taxProfile?.section80TTBUsed || 0, section80TTBDisallowed: taxCalc.taxProfile?.section80TTBDisallowed || 0, grossRedemption: principalDrawdown, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual });
   }
 
   const final = rows[rows.length - 1];
@@ -1894,6 +1946,10 @@ function calculateSwpPlan(params) {
   let cumInterest = 0;
   let cumTax = 0;
   let cumContributions = 0;
+  // fin-8fb F1 — §74 carry-forward pool: local to this run (never on the
+  // shared `params` object), so it resets automatically for every
+  // calculateSwpPlan invocation, including every Monte Carlo path.
+  const carryForwardPool = { stclPool: [], ltclPool: [] };
   rows.push({ year: 0, opening: principal, effYield: effectiveYield(params), interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing: principal, realClosing: principal, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0 });
 
   for (let year = 1; year <= years; year++) {
@@ -2011,6 +2067,36 @@ function calculateSwpPlan(params) {
         cashCoverage: targetMonthly ? redemption.cash / targetMonthly : 0,
         lotCount: buckets.equity.lots.length + buckets.debt.lots.length
       });
+    }
+
+    // fin-8fb F1 — §74 carry-forward true-up: applied ONCE per year, against
+    // the year's fully-aggregated streams (context.streams), never inside the
+    // monthly redemption loop (see applyYearEndCarryForward doc comment for
+    // why). Any prior-year carried loss reduces this year's tax; any
+    // unabsorbed loss this year rolls into the pool for future years.
+    const yearCarryForward = applyYearEndCarryForward(carryForwardPool, yearParams, context.streams, year);
+    if (yearCarryForward.taxBenefit > 0) {
+      annual.tax = Math.max(0, annual.tax - yearCarryForward.taxBenefit);
+      annual.taxableGain = Math.max(0, annual.taxableGain - yearCarryForward.taxableGainBenefit);
+      // Credit the tax saved back into the corpus (fewer units needed to have
+      // been sold to fund the lower, carry-forward-adjusted tax bill), split
+      // by this year's asset allocation like the annual contribution is.
+      const equityCreditShare = Number(yearParams.useAssetReturns) === 1 ? clamp((Number(yearParams.equityShare) || 0) / 100, 0, 1) : 0;
+      addContributionLot(buckets.equity, yearCarryForward.taxBenefit * equityCreditShare);
+      addContributionLot(buckets.debt, yearCarryForward.taxBenefit * (1 - equityCreditShare));
+      // Attribute the whole-year benefit to the last month's ledger row so
+      // INV-L06 (last monthly row's closing === annual closing) still holds;
+      // this is a documented simplification — see model-contract.md — the
+      // pool is a year-boundary concept, so intra-year monthly attribution is
+      // necessarily approximate.
+      const lastMonthRow = monthlyRows[monthlyRows.length - 1];
+      if (lastMonthRow) {
+        lastMonthRow.tax = Math.max(0, lastMonthRow.tax - yearCarryForward.taxBenefit);
+        lastMonthRow.netInterest += yearCarryForward.taxBenefit;
+        lastMonthRow.taxableGain = Math.max(0, lastMonthRow.taxableGain - yearCarryForward.taxableGainBenefit);
+        lastMonthRow.closing += yearCarryForward.taxBenefit;
+        lastMonthRow.realClosing = lastMonthRow.closing / Math.pow(1 + inflation, year);
+      }
     }
 
     const closing = bucketValue(buckets.equity) + bucketValue(buckets.debt);
@@ -3057,6 +3143,8 @@ export {
   addTaxStreams,
   calculateTaxProfile,
   investmentTaxProfile,
+  assessmentYearForProjectionYear,
+  applyYearEndCarryForward,
   standardDeductionLimit,
   acquisitionYearForKind,
   productClassForInstrument,

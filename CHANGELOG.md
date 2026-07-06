@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- §74 capital-loss carry-forward is now live across projection years in
+  `calculateSwpPlan` and `calculateInterestPlan` (fin-8fb F1). Previously the
+  8-year FIFO pool existed and was fully correct as a single-call primitive
+  (`investmentTaxProfile`/`calculateTaxProfile`) but projections never
+  threaded it from one year to the next, so a realized loss was silently
+  forgotten at the next year boundary. A local pool now carries forward
+  automatically for every SWP/Interest run (including every Monte Carlo
+  path) — there is no UI toggle, since this is a correctness fix, not an
+  optional feature. **Numbers may improve (lower projected tax, higher
+  closing corpus) for any plan that realizes a capital loss during the
+  projection** — see `docs/developer/model-contract.md` §3 for the exact
+  mechanics and scope (SWP: full lot-level coverage; Interest: pool wiring
+  present but the engine's flat-ratio principal-drawdown sale cannot itself
+  realize a loss today; IDCW: out of scope, no capital gains are realized by
+  that engine).
+
 ## [1.0.0] - 2026-05-25
 
 ### Added
