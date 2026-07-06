@@ -34,7 +34,6 @@ import puppeteer from "puppeteer-core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { THEME_KEY } from "../../src/persistence.js";
 
 // Chrome executable path:
 //   1. PUPPETEER_EXECUTABLE_PATH env var (CI sets this from
@@ -136,17 +135,13 @@ export async function withBrowser(launchOpts, testFn) {
     // (see resolveThemePreference in src/main.jsx), so tests that toggle
     // themes explicitly are unaffected.
     await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "dark" }]);
-    // Belt-and-suspenders: also pre-seed the theme storage key so any code
-    // path that reads it directly still sees a dark default. Guarded so it
-    // never clobbers a value a test (or the app itself, via the theme
-    // toggle) already wrote — e.g. across a page.reload() mid-test.
-    await page.evaluateOnNewDocument((themeKey) => {
-      try {
-        if (!window.localStorage.getItem(themeKey)) {
-          window.localStorage.setItem(themeKey, JSON.stringify("dark"));
-        }
-      } catch (_) {}
-    }, THEME_KEY);
+    // NOTE: we deliberately do NOT pre-seed the theme localStorage key here.
+    // app.html's W-0002 bootstrap resolves the theme from prefers-color-scheme
+    // when nothing is stored, so the emulated dark preference above already
+    // reproduces the old hardcoded-dark default on the pre-consent screen —
+    // without writing any storage key. Seeding the key would violate
+    // dashboard-regression's pre-consent audit (the app must persist nothing
+    // before consent). An explicit stored/toggled theme still always wins.
     await testFn({ browser, page });
   } finally {
     try { await browser.close(); } catch {}
