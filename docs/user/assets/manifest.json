@@ -1,73 +1,73 @@
 {
   "version": "1.0.0",
-  "last_updated": "2026-05-16",
-  "productVersion": "1.0.0",
+  "last_updated": "2026-07-06",
+  "productVersion": "2.0.0",
   "artifact": "index.html",
-  "artifactSha256": "0a7edd3d1cf1d32726c49d9a46e844651aa9d60279c73e803f7195f2d15f472b",
-  "capturedOn": "2026-05-16T14:36:00+05:30",
+  "artifactSha256": "8b6fa4290149e7f20337de3af2ae441bf825df0d82a324400b387f5825e55cdf",
+  "capturedOn": "2026-07-06T09:24:02.777Z",
   "screenshots": [
     {
       "path": "docs/user/assets/guided-tour.jpg",
       "viewport": "desktop 1440x920",
       "sourcePage": "first-run guided tour",
-      "bytes": 143581,
-      "sha256": "1f67237df1fa3ac12b5c6721058cac8cd652d0f84fdccc3dc0f532942351725d"
+      "bytes": 154043,
+      "sha256": "2d17fb648b6175e4b951bb681dea786465d8a96ee9e40432b89c9ab8ec1aabcf"
     },
     {
       "path": "docs/user/assets/overview-cockpit.jpg",
       "viewport": "desktop 1440x920",
       "sourcePage": "Overview",
-      "bytes": 210695,
-      "sha256": "dc135ba507ab97b3eb8891ddb4f5a88489cab7fda7cf0725f4745c402fc06591"
+      "bytes": 212941,
+      "sha256": "501a07176de672d68606ffac96fed0fe69975bd21e98ff492ffa186b3d9d9625"
     },
     {
       "path": "docs/user/assets/guided-planner.jpg",
       "viewport": "desktop 1440x920",
       "sourcePage": "Guided Planner",
-      "bytes": 192281,
-      "sha256": "f66a5318468836444814631fef3f65cf7001e5c36b270827c9a00ea5cb71ecdb"
+      "bytes": 191897,
+      "sha256": "414cc3028d5800798a9b03585d1dcd075ac1c96323c6365f1b3d74989889dd00"
     },
     {
       "path": "docs/user/assets/tax-studio.jpg",
       "viewport": "desktop 1440x920",
       "sourcePage": "Tax Studio",
-      "bytes": 219453,
-      "sha256": "91092ba8d2c607b45d600009e9b70df5a3bf84fdb21ac3215e8dc3658a7a41de"
+      "bytes": 211835,
+      "sha256": "8f10e253f0b1e96b976eb660254912c5687f6d94842b99529fdf6a15b5148aba"
     },
     {
       "path": "docs/user/assets/simulations-risk.jpg",
       "viewport": "desktop 1440x920",
       "sourcePage": "Simulations",
-      "bytes": 206283,
-      "sha256": "d4a17499ff0df90ab1bc4cfad1777615445fea32f6ede834ddb700060d3647c2"
+      "bytes": 202507,
+      "sha256": "26169f0737db62b6be9a37b48280d54a37134e16877874348b0bbf7b3b3edc02"
     },
     {
       "path": "docs/user/assets/ledger-evidence.jpg",
       "viewport": "desktop 1440x920",
       "sourcePage": "Ledger",
-      "bytes": 208611,
-      "sha256": "0bab988f6c4cb9a1bc1d383792d5cc5487bc07b9a3b9172ff388c7f74756bcb1"
+      "bytes": 208428,
+      "sha256": "ad98d46c867e184df36989d1f82efc147d4e805d55e2075baef6fe264a95037e"
     },
     {
       "path": "docs/user/assets/assumption-studio.jpg",
       "viewport": "desktop 1440x920",
       "sourcePage": "Assumption Studio drawer",
-      "bytes": 173847,
-      "sha256": "e98e4bec87092bc3657c9d2ef157897e1e4c16b2223c02418818122cfeefd7ec"
+      "bytes": 175010,
+      "sha256": "9a12513d1953aa2729c367f197d53ed35f1c4e6a225ce934ad7917b5dabd1b9c"
     },
     {
       "path": "docs/user/assets/help-system.jpg",
       "viewport": "desktop 1440x920",
       "sourcePage": "Help drawer",
-      "bytes": 210215,
-      "sha256": "ee6a8d26483ee9a1c8ca3e82eadc5ba2cf099f355695a8010433beed83848c70"
+      "bytes": 203923,
+      "sha256": "d6c539f522fa1499eb286588e68d33eb9ffe58bd28096d226892e7ed4bdb446d"
     },
     {
       "path": "docs/user/assets/mobile-overview.jpg",
       "viewport": "iPhone-class 390x844",
       "sourcePage": "Mobile Overview",
-      "bytes": 166291,
-      "sha256": "a3a133bd485b61a0cab1aa38f974ac4e1d7ded7cd1471aafc87d7e27c3c4a836"
+      "bytes": 178561,
+      "sha256": "d1d2f065a052a0a935fb5a55fc3900c631daef279320ccb8b060b5966f5abdec"
     },
     {
       "path": "docs/user/assets/mobile-topbar-actions.jpg",
@@ -80,85 +80,85 @@
       "path": "docs/user/assets/mobile-topbar-more-menu.jpg",
       "viewport": "iPhone-class 390x844",
       "sourcePage": "Mobile more actions menu",
-      "bytes": 37391,
-      "sha256": "3a164d01b31a85bacb957d44005d78c1e513d1490fe453e5246ed9ba4eba8434"
+      "bytes": 38811,
+      "sha256": "20e7785cd5c343e977c4f452b0944d08825b7f86968a482bec8fd261d38a63d4"
     },
     {
       "path": "docs/user/assets/mobile-guided-planner.jpg",
       "viewport": "iPhone-class 390x844",
       "sourcePage": "Mobile Guided Planner",
-      "bytes": 170285,
-      "sha256": "83bf84133f5fc2f06bc36887ba18cce5319c7d52571613f75eb48d07f7143759"
+      "bytes": 170455,
+      "sha256": "ad83c81d63ad233b992ba3594d34e5c56437ac023d4e69d8ee36b7bb07815e46"
     },
     {
       "path": "docs/user/assets/mobile-tax-studio.jpg",
       "viewport": "iPhone-class 390x844",
       "sourcePage": "Mobile Tax Studio",
-      "bytes": 174264,
-      "sha256": "092af5921b098fe719835e47c7c52507c9a8ca92eb98d98f657be5b4edfe4d48"
+      "bytes": 171788,
+      "sha256": "f7e6fb89dfe0b4686a29beb49b1375d9b6e288af094e7baa5568cd1beed1ff0e"
     },
     {
       "path": "docs/user/assets/mobile-simulations-risk.jpg",
       "viewport": "iPhone-class 390x844",
       "sourcePage": "Mobile Simulations",
-      "bytes": 168343,
-      "sha256": "1f1776c66eaa90324d086d70300dcdee89a1021fe6f2844911917bda6b7cb181"
+      "bytes": 168230,
+      "sha256": "b7602083d8cecca3f250d8f056f1f8395563d45775269fb3232911051a91162b"
     },
     {
       "path": "docs/user/assets/mobile-ledger-evidence.jpg",
       "viewport": "iPhone-class 390x844",
       "sourcePage": "Mobile Ledger",
-      "bytes": 169135,
-      "sha256": "9cb407363e0a425baa58ad51b1176eb222ff24f73dd2cf8543aa3a5e7d30cbfe"
+      "bytes": 169207,
+      "sha256": "765f021ada18e8e0fd990e945c0261a126f51eec3c99f4d29c490eafc44269d6"
     },
     {
       "path": "docs/user/assets/mobile-assumption-studio.jpg",
       "viewport": "iPhone-class 390x844",
       "sourcePage": "Mobile Assumption Studio",
-      "bytes": 112561,
-      "sha256": "97c95c62227768b0721768b65315a38392dfbc4327672527094dfcda1d84690a"
+      "bytes": 113549,
+      "sha256": "32f67c3ec501be77249e5f51b4a5ab1872d1a8c39d3526fd3d80fceba9467c65"
     },
     {
       "path": "docs/user/assets/mobile-help-system.jpg",
       "viewport": "iPhone-class 390x844",
       "sourcePage": "Mobile Help drawer",
-      "bytes": 142013,
-      "sha256": "5a8fa79a5bd69962fde88556544e0c07da1fcdb79c04273a7a16627479718154"
+      "bytes": 142046,
+      "sha256": "cc667eb91509a387bc312dbc86293a2e91cbc5c9402f18571a3f60244dc7ce87"
     },
     {
       "path": "docs/user/assets/android-mobile-overview.jpg",
       "viewport": "Android-class 412x915",
       "sourcePage": "Android Overview",
-      "bytes": 288103,
-      "sha256": "7cab6aad1e7d361354cbd6c0b7b1e66a5a687f8dedaedc2b85dfd68005f85230"
+      "bytes": 287862,
+      "sha256": "37a84ca2dcacf51d80d347bdfabbfb0b0898c9d89da10f52af386cdc6c5fcea7"
     },
     {
       "path": "docs/user/assets/android-mobile-guided-planner.jpg",
       "viewport": "Android-class 412x915",
       "sourcePage": "Android Guided Planner",
-      "bytes": 289578,
-      "sha256": "ba6f0806ac7eb3a443e0ab1caf010f36d33b0ac42b5dfe6b183362823a72f29c"
+      "bytes": 289025,
+      "sha256": "f96f82c7b5d67a1db2f6a528faa7dc133a1b864f0229a35af3aa30996dfdc517"
     },
     {
       "path": "docs/user/assets/android-mobile-tax-studio.jpg",
       "viewport": "Android-class 412x915",
       "sourcePage": "Android Tax Studio",
-      "bytes": 279348,
-      "sha256": "ce54123b0a45b57abe56e254037bb68cb32ae5992208a114c72005d185ddc306"
+      "bytes": 277432,
+      "sha256": "d8fdad017a0eab7f3527dd910c7ebaf56745ccd23d015e28eaff75e32dfd60ed"
     },
     {
       "path": "docs/user/assets/android-mobile-simulations-risk.jpg",
       "viewport": "Android-class 412x915",
       "sourcePage": "Android Simulations",
-      "bytes": 270410,
-      "sha256": "e0fab64f046305815bedb415e7b092dea93d25627c5106b3ed5de27691aa1797"
+      "bytes": 270318,
+      "sha256": "41537ce2f32a04cd5f0e7474e4344ed5027481fdd12c813a48733ba9a7bfaf9a"
     },
     {
       "path": "docs/user/assets/android-mobile-ledger-evidence.jpg",
       "viewport": "Android-class 412x915",
       "sourcePage": "Android Ledger",
-      "bytes": 276532,
-      "sha256": "07793a3780d66e170b21dccccc1454c96ad32cc949e6420495ccd8e2e5825f4a"
+      "bytes": 277168,
+      "sha256": "3310692c1f1381273622db71c1cc7a596136ff15083b6c001c33da683408ddc8"
     }
   ]
 }

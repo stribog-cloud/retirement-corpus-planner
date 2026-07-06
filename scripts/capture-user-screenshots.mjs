@@ -167,7 +167,7 @@ async function writeScreenshotManifest(names) {
 }
 
 async function acceptPrivacyForTour(page) {
-  await page.waitForSelector(".privacy-consent-card", { timeout: 8000 });
+  await page.waitForSelector(".disclaimer-notice-card", { timeout: 8000 });
   await page.evaluate(() => {
     const buttons = Array.from(document.getElementsByTagName("button"));
     const accept = buttons.find((button) => /understand/i.test(button.textContent || ""));
