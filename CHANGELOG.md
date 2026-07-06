@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Multi-goal planned lump sums (fin-8fb F3): a new `plannedLumpSums` array
+  (up to 10 goals, each `{ id?, name, amount, year, inflate }`) replaces the
+  single-goal `plannedLumpSumAmount`/`plannedLumpSumYear`/`plannedLumpSumInflate`
+  triple. A dedicated sanitizer, `sanitizePlannedLumpSums`, drops invalid
+  entries (garbage input, non-finite/negative amount, non-finite year) and
+  clamps an out-of-range year into `[1, 80]`; a shared migration helper,
+  `resolvePlannedLumpSums`, prefers a valid array and otherwise synthesizes a
+  single-entry array from the legacy triple, so existing saved states keep
+  working unchanged. Goals only fire under `useHouseholdPlan` — the same
+  scoping the legacy single-goal field always had — and each goal escalates
+  independently by its own `inflate` flag; lump sums are still added on top
+  of the recurring cash target, never scaled by the dynamic-withdrawal
+  multiplier (fin-8fb F2) or by `percentOfCorpus`. Default state (no goals)
+  is byte-identical to pre-F3 output. See `docs/developer/model-contract.md`
+  §4.2 for the full contract, including the idempotency note on why a
+  legacy amount-set/year-unset goal synthesizes no entry rather than a
+  `year: 0` placeholder.
+
 - Dynamic withdrawal rules (fin-8fb F2): a new `withdrawalRule` setting
   (`fixed` / `guardrails` / `percentOfCorpus`, default `fixed`) resolves the
   recurring annual cash target at each projection year boundary instead of a

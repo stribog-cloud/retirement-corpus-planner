@@ -341,6 +341,58 @@ function normalizeFieldValue(key, value) {
   return Number.isFinite(next) ? next : 0;
 }
 
+// fin-8fb F3 — multi-goal planned lump sums. Dedicated sanitizer (NOT a
+// NUMERIC_FIELDS entry — plannedLumpSums is an array, not a scalar). Accepts
+// anything; returns a clean array of at most 10 entries, each
+// { id?, name, amount, year, inflate }. Invalid entries (non-object, missing
+// or negative/non-finite amount, non-finite year) are dropped; year is
+// clamped into [1, 80] rather than dropped so a slightly-out-of-range year
+// still yields a usable goal. Invalid/non-array input yields [].
+function sanitizePlannedLumpSums(input) {
+  if (!Array.isArray(input)) return [];
+  const out = [];
+  for (const raw of input) {
+    if (out.length >= 10) break;
+    if (!raw || typeof raw !== "object") continue;
+    const amount = Number(raw.amount);
+    if (!Number.isFinite(amount) || amount < 0) continue;
+    const yearNum = Number(raw.year);
+    if (!Number.isFinite(yearNum)) continue;
+    const year = clamp(Math.round(yearNum), 1, 80);
+    const inflate = Number(raw.inflate) === 1 ? 1 : 0;
+    const name = (typeof raw.name === "string" ? raw.name : "").trim().slice(0, 40);
+    const entry = { name, amount, year, inflate };
+    if (raw.id !== undefined && raw.id !== null) entry.id = raw.id;
+    out.push(entry);
+  }
+  return out;
+}
+
+// fin-8fb F3 — resolves the effective goals array for a given state: the
+// sanitized plannedLumpSums array wins when non-empty; otherwise the legacy
+// single-goal triple (plannedLumpSumAmount/Year/Inflate) is synthesized into
+// a one-entry array so old saved states keep working. A legacy year < 1
+// ("unset" — the pre-F3 code's own signal that the goal never matches any
+// projection year, since actualYear >= 1 always) synthesizes no entry at
+// all rather than a year-0 placeholder: this function must be idempotent
+// (normalizeState resolves once into state.plannedLumpSums; householdPlanProfile
+// then resolves again from that already-resolved state), and a year-0 entry
+// re-run through sanitizePlannedLumpSums would get its year clamped up to 1,
+// turning a previously-inert goal into one that fires in year 1.
+function resolvePlannedLumpSums(state = {}) {
+  const sanitized = sanitizePlannedLumpSums(state.plannedLumpSums);
+  if (sanitized.length > 0) return sanitized;
+  const legacyAmount = Math.max(0, Number(state.plannedLumpSumAmount) || 0);
+  const legacyYear = Math.round(Number(state.plannedLumpSumYear) || 0);
+  if (legacyAmount <= 0 || legacyYear < 1) return [];
+  return [{
+    name: "Planned lump sum",
+    amount: legacyAmount,
+    year: clamp(legacyYear, 1, 80),
+    inflate: Number(state.plannedLumpSumInflate) === 1 ? 1 : 0
+  }];
+}
+
 function normalizeState(input = {}) {
   const next = { ...BASE, ...input };
   NUMERIC_FIELDS.forEach((key) => {
@@ -349,6 +401,10 @@ function normalizeState(input = {}) {
   if (!["auto", "custom"].includes(next.standardDeductionMode)) next.standardDeductionMode = "auto";
   if (!["regime", "normal"].includes(next.shockModel)) next.shockModel = "regime";
   if (!["fixed", "guardrails", "percentOfCorpus"].includes(next.withdrawalRule)) next.withdrawalRule = "fixed";
+  // fin-8fb F3: normalized state always carries a resolved goals array
+  // (possibly empty) — legacy scalar fields are kept in NUMERIC_FIELDS above
+  // for back-compat loading and are otherwise untouched.
+  next.plannedLumpSums = resolvePlannedLumpSums(input);
   return next;
 }
 
@@ -397,6 +453,10 @@ function householdPlanProfile(state = {}) {
     plannedLumpSum,
     plannedLumpSumYear: Math.max(0, Math.round(Number(state.plannedLumpSumYear) || 0)),
     plannedLumpSumInflate: Number(state.plannedLumpSumInflate) === 1,
+    // fin-8fb F3: multi-goal array, active only under the household plan —
+    // same scoping the legacy single-goal fields above already had (goals
+    // never fire outside useHouseholdPlan; see plannedLumpSumForYear).
+    plannedLumpSums: useHouseholdPlan ? resolvePlannedLumpSums(state) : [],
     // Q53 fin-711: in household mode, derive longevity from joint-life expectancy
     // (max(0, 90-retireeAge), max(0, 90-spouseAge)) → last-survivor basis.
     // Use max of age-derived and user-input longevityYears (conservative).
@@ -1507,11 +1567,20 @@ function monthlyCashNeedForYear(params = {}, year = 1) {
   return Math.max(0, profile.expenses.essential + profile.expenses.discretionary + profile.expenses.spouse + dependantNeed - profile.incomeFloor);
 }
 
+// fin-8fb F3: sums every goal whose year matches this projection year, each
+// inflated (or not) per its own entry flag — same inflationFactor convention
+// the prior single-goal implementation used.
 function plannedLumpSumForYear(params = {}, year = 1, inflationFactor = 1) {
   const profile = params.householdProfile || householdPlanProfile(params);
+  if (!profile.useHouseholdPlan) return 0;
   const actualYear = Math.max(1, Math.round(Number(params.sequenceYearOffset) || 0) + year);
-  if (!profile.useHouseholdPlan || profile.plannedLumpSum <= 0 || profile.plannedLumpSumYear !== actualYear) return 0;
-  return profile.plannedLumpSum * (profile.plannedLumpSumInflate ? inflationFactor : 1);
+  const goals = Array.isArray(profile.plannedLumpSums) ? profile.plannedLumpSums : [];
+  let total = 0;
+  for (const goal of goals) {
+    if (goal.year !== actualYear) continue;
+    total += goal.amount * (goal.inflate ? inflationFactor : 1);
+  }
+  return total;
 }
 
 function targetAnnualCashForYear(params = {}, year = 1, inflationFactor = 1) {
@@ -3275,7 +3344,11 @@ function buildAllocationPlan(candidateState, model, profile, strategy = {}) {
   const defensiveValue = Math.max(0, principal - equityValue);
   const incomeFloor = Math.max(0, defensiveValue - cashBucket);
   const growthSleeve = equityValue;
-  const plannedGoal = profile.household?.plannedLumpSum || 0;
+  // fin-8fb F3: sum across every goal (not just the legacy single field) so
+  // the "Known goals" bucket reflects all planned lump sums; for
+  // legacy/single-goal states this equals profile.household.plannedLumpSum
+  // exactly, since plannedLumpSums then holds that one synthesized entry.
+  const plannedGoal = (profile.household?.plannedLumpSums || []).reduce((sum, goal) => sum + (Number(goal.amount) || 0), 0);
   const healthcareReserve = profile.household?.healthcareReserve || 0;
   const refillTrigger = monthlyCash * Math.max(6, Math.round(cashMonths * 0.5));
   const yearsCovered = monthlyCash > 0 ? Math.floor(defensiveValue / monthlyCash / 12) : 99;
@@ -3387,6 +3460,8 @@ export {
   clamp,
   normalizeFieldValue,
   normalizeState,
+  sanitizePlannedLumpSums,
+  resolvePlannedLumpSums,
   householdPlanProfile,
   projectionParamsFromState,
   roundToStep,

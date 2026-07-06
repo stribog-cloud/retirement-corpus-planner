@@ -247,6 +247,66 @@ guardrails/percentOfCorpus, unlike the pre-F2 fixed target.
 state is local to that single `calculate*Plan` invocation, so it resets per
 path exactly like F1's carry-forward pool.
 
+### 4.2 Multi-Goal Planned Lump Sums (fin-8fb F3)
+
+`plannedLumpSums` replaces the single-goal `plannedLumpSumAmount` /
+`plannedLumpSumYear` / `plannedLumpSumInflate` triple with an array of up to
+10 goals, each `{ id?, name, amount, year, inflate }`. Goals only fire under
+`useHouseholdPlan` — the same scoping the legacy single-goal fields always
+had.
+
+**Sanitizer.** `sanitizePlannedLumpSums(input)` (exported, pure) accepts
+anything and returns a clean array: non-array/garbage input yields `[]`;
+non-object entries and entries with a negative or non-finite `amount` are
+dropped; entries with a non-finite `year` are dropped; a finite but
+out-of-range `year` is **clamped** into `[1, 80]` (not dropped); `name` is
+trimmed and capped at 40 characters; `inflate` coerces to strictly `0` or
+`1`; the array is capped at the first 10 valid entries.
+
+**Migration.** `resolvePlannedLumpSums(state)` (exported, pure) is the shared
+resolution helper: the sanitized `state.plannedLumpSums` array wins whenever
+it is non-empty (the legacy triple is then ignored entirely); otherwise, if
+`plannedLumpSumAmount > 0` **and** `plannedLumpSumYear >= 1`, a single-entry
+array `[{ name: "Planned lump sum", amount, year, inflate }]` is synthesized
+from the legacy fields. A legacy `amount > 0` with `year <= 0` ("unset" —
+the pre-F3 code's own signal that the goal never matches any projection
+year) synthesizes **no** entry at all, rather than a `year: 0` placeholder —
+this keeps the function idempotent. (`normalizeState` resolves once into
+`state.plannedLumpSums`; `householdPlanProfile` then resolves again from
+that already-resolved state. A stored `year: 0` entry re-run through
+`sanitizePlannedLumpSums` would get its year clamped up to `1`, turning a
+previously-inert goal into one that fires in year 1 on the very next
+resolution — returning `[]` instead sidesteps that entirely.) Legacy scalar
+fields remain in `NUMERIC_FIELDS` and on the normalized state for back-compat
+loading only; they are otherwise inert once a valid array is present.
+
+`normalizeState(state).plannedLumpSums` is always an array (possibly `[]`),
+regardless of `useHouseholdPlan` — the household gate is applied downstream.
+`householdPlanProfile(state).plannedLumpSums` is `[]` whenever
+`!useHouseholdPlan`, and otherwise the resolved array (recomputed directly
+from `state`, not merely copied from `state.plannedLumpSums`, so calling
+`householdPlanProfile` on a raw, never-normalized state still works — several
+existing tests do exactly this). The legacy scalar profile fields
+(`plannedLumpSum`, `plannedLumpSumYear`, `plannedLumpSumInflate`) are left
+unchanged, computed unconditionally as before, for `persistence.js`'s
+`cleanEffectiveProjectionEvidence` back-compat snapshot.
+
+**Summation.** `plannedLumpSumForYear(params, year, inflationFactor)` sums
+every goal in `profile.plannedLumpSums` whose `year` matches the current
+projection year, escalating each by `inflationFactor` only when that goal's
+own `inflate` flag is set — goals are never scaled together or by any
+dynamic-withdrawal multiplier (see §4.1). `targetAnnualCashForYear` /
+`targetMonthlyCashForMonth` add this sum on top of the resolved recurring
+target exactly as before F3; every call site (`calculateInterestPlan`,
+`calculateSwpPlan`, `calculateIdcwPlan`) is unaffected by the internal
+representation change, since they only ever call the same two helper
+functions.
+
+**Default-state parity.** BASE has no `plannedLumpSums` key and
+`plannedLumpSumAmount: 0`, so `normalizeState({}).plannedLumpSums` is `[]`
+and every existing engine output is byte-identical to pre-F3
+(`tests/v2-parity-goldens.test.jsx`).
+
 ## 5. Risk Contract
 
 Risk calculations must disclose sample count, seed, path regime, P10/P50/P90, worst path, and confidence band where available. Interactive defaults may remain fast, but final-review workflows must make sample-size limitations visible.
