@@ -4,8 +4,8 @@ created: 2026-05-15
 updated: 2026-07-06
 type: project/developer-doc
 status: governing-reference
-version: "1.4.0"
-revision: 6
+version: "1.5.0"
+revision: 7
 last_updated: 2026-07-06
 tags: [developer-docs, model, tax, planning, contract]
 project: fin-dashboard
@@ -129,6 +129,124 @@ are numerically unaffected, since an empty pool is a no-op.
 
 Changing one engine requires regression checks for Overview, Tax Studio, Simulations, Ledger, exports, and Help language.
 
+### 4.1 Dynamic Withdrawal Rules — Guardrails / Percent-of-Corpus (fin-8fb F2)
+
+`withdrawalRule` selects how the recurring annual cash need is resolved each
+projection year: `"fixed"` (default — current behavior, byte-identical),
+`"guardrails"` (simplified Guyton-Klinger), or `"percentOfCorpus"`. Supporting
+fields: `guardrailBandPct` (default 20), `guardrailAdjustPct` (default 10),
+`percentOfCorpusRate` (default 5), `spendingFloorMonthly` (default 0, in
+today's rupees). `normalizeState` guards the enum, falling back to `"fixed"`
+for any unrecognized value.
+
+**Scope.** The rule operates ONLY on the recurring cash need
+(`monthlyCashNeedForYear(year) x 12`, escalated per rule). Planned lump sums
+are never scaled by the multiplier or by `percentOfCorpus` — every call site
+adds `plannedLumpSumForYear(...)` on top of the resolved recurring target,
+using the natural (un-held, un-multiplied) inflation factor, exactly as
+`targetAnnualCashForYear` already did pre-F2.
+
+**`resolveDynamicSpending`** (exported, pure) is the single per-year decision
+point: `{ rule, year, openingCorpus, baseAnnualCash, inflationFactor,
+heldInflationFactor, initialRate, multiplier, priorYearReturn, params } =>
+{ annualCashTarget, nextMultiplier, nextInflationFactor, inflationHeld,
+guardrailAction }`. Engines hold `spendingMultiplier`, a held-inflation-factor
+carry, `initialRate` (established from year 1), and `priorYearReturn` as
+**local variables** — never on the shared `params` object — exactly the same
+discipline F1 uses for `carryForwardPool`, so state resets automatically for
+every Monte Carlo path and cannot leak between runs.
+
+**Fixed-mode parity is structural, not incidental.** `resolveDynamicSpending`
+short-circuits before any rule-specific math when `rule` is `"fixed"` (or any
+unrecognized string), returning `baseAnnualCash x naturalInflationFactor` —
+the identical expression `targetAnnualCashForYear`/`targetMonthlyCashForMonth`
+already compute, same operands, same order. `calculateSwpPlan`'s monthly loop
+additionally keeps the literal pre-F2 `targetMonthlyCashForMonth(...)` call
+for fixed mode (`yearDynamic` stays `null`), so default-state output is
+byte-identical by construction, not by coincidental arithmetic equivalence —
+confirmed by a deep-equality test between a run with `withdrawalRule` absent
+and a run with `"fixed"` plus wildly different (and therefore provably
+ignored) guardrail/percentOfCorpus fields.
+
+**Guardrails**, evaluated once initialRate is set (year ≥ 2):
+
+1. `plannedAnnual = baseAnnualCash x candidateInflationFactor x multiplier`,
+   where `candidateInflationFactor` is ONE more compounding step on top of
+   last year's *actually-applied* (possibly held) factor — not a fresh
+   `Math.pow(1+g, year-1)` recompute. `currentRate = plannedAnnual /
+   openingCorpus`.
+2. Capital-preservation cut: `currentRate > initialRate x (1 + band)` →
+   `multiplier x= (1 - adjust)`, `guardrailAction: "cut"`.
+3. Prosperity raise: `currentRate < initialRate x (1 - band)` →
+   `multiplier x= (1 + adjust)`, `guardrailAction: "raise"`.
+4. Otherwise, inflation-hold: if last year's portfolio return was negative
+   AND `currentRate` is still above `initialRate`, freeze this year's
+   escalation (carry last year's held factor forward unchanged instead of
+   advancing it) — `guardrailAction: "inflation-hold"`. **Checked only when
+   neither band rule fired** — an engineered band breach always reports as
+   `"cut"`/`"raise"` even in a year that follows a loss, matching the
+   engineered test in `tests/dynamic-withdrawal.test.jsx`.
+5. `multiplier` is always clamped to `[0.5, 2.0]`.
+
+A frozen inflation factor is a **permanent** one-year skip, not a deferred
+catch-up: later years keep compounding from the frozen level, matching
+classic Guyton-Klinger, not the raw calendar exponent.
+
+**percentOfCorpus:** `annualCashTarget = percentOfCorpusRate% x
+openingCorpus`, every year — no multiplier, no band/hold state
+(`spendingMultiplier` stays `1`, `guardrailAction` stays `"none"`).
+`inflateWithdrawals` is bypassed by design. Converted to monthly by flat
+division (`annualCashTarget / 12`), with **no** within-year continuous
+escalation (unlike guardrails/fixed) — SWP's month loop special-cases this so
+percentOfCorpus doesn't inherit fixed mode's continuous compounding shape.
+
+**Floor (both dynamic rules):** `spendingFloorMonthly` is in today's rupees
+and always escalates by the **natural** (un-held) inflation factor regardless
+of rule or holdback — a floor is a protection level, not a target, so it
+tracks true CPI even in a frozen or percent-of-corpus year. `annualCashTarget
+= max(ruleResolvedTarget, floorMonthly x 12 x naturalInflationFactor)`.
+
+**Engine coverage:**
+
+| Engine | Coverage |
+|--------|----------|
+| SWP (`calculateSwpPlan`) | Full. Annual decision at the year boundary (mirroring F1's carry-forward commit point); monthly targets derive from the resolved annual figure, re-applying SWP's existing within-year continuous escalation ratio for guardrails (flat division for percentOfCorpus). Lump sums added un-scaled in month 1 only. |
+| Interest (`calculateInterestPlan`) | Full. Single annual decision feeds `targetAnnual` at the same site `targetAnnualCashForYear` used pre-F2. |
+| IDCW (`calculateIdcwPlan`) | Full. The gross-up bisection search (`desiredGross` sized to net `targetAnnual` after tax) integrates cleanly at the same annual-target site — no structural obstacle was found, unlike F1's carry-forward (which IDCW cannot use since it never realizes capital gains). |
+
+**Ledger.** Yearly rows (the `rows` array returned by all three engines) gain
+two additive fields: `spendingMultiplier` (number, `1` in fixed mode) and
+`guardrailAction` (`"none" | "cut" | "raise" | "inflation-hold"`, `"none"` in
+fixed and percentOfCorpus modes). Monthly row shapes (`monthlyRows` for SWP;
+`buildMonthlyLedger`'s synthesized rows for Interest/IDCW) are unchanged.
+**Known simplification:** `buildMonthlyLedger`'s per-month
+`withdrawal_target_nominal` curve for Interest/IDCW is synthesized from
+already-computed annual rows via the pre-F2 `targetMonthlyCashForMonth`
+formula — it does not have access to the per-year guardrails state
+(multiplier, held-inflation-factor carry) and so still displays the
+*static* target shape for those two engines under a dynamic rule, even
+though the underlying annual `withdrawal_nominal` (amortized from the
+resolved dynamic annual withdrawal) is correct. SWP does not have this gap:
+its `monthlyRows` are populated directly from the same per-year dynamic
+state the annual row uses.
+
+**Coverage semantics.** `cashCoverage` (on both annual and SWP monthly rows)
+is always measured against the **resolved** target for that period, not
+against a fixed/undiminished target. In a guardrails "cut" year the
+withdrawal still tracks close to 100% coverage of the (already-reduced)
+target — a cut is a change to what is being aimed for, not a shortfall
+against the original aim. `planCoversMonthlyCash` / `solveCorpusForMonthlyCash`
+inherit this automatically since they read `cashCoverage` off the same rows;
+`solveCorpusForMonthlyCash` still converges to a finite corpus under
+guardrails (verified in `tests/dynamic-withdrawal.test.jsx`), though the
+resolved target it is bisecting against is itself corpus-dependent under
+guardrails/percentOfCorpus, unlike the pre-F2 fixed target.
+
+**Monte Carlo.** No extra wiring needed: `calculateSequencePath`/
+`calculateMonteCarlo` call `calculate()` fresh per path, and all dynamic-rule
+state is local to that single `calculate*Plan` invocation, so it resets per
+path exactly like F1's carry-forward pool.
+
 ## 5. Risk Contract
 
 Risk calculations must disclose sample count, seed, path regime, P10/P50/P90, worst path, and confidence band where available. Interactive defaults may remain fast, but final-review workflows must make sample-size limitations visible.
@@ -225,6 +343,7 @@ This is the natural convention for an Indian retiree who states "I need ₹X/mon
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 1.5.0 | 7 | 2026-07-06 | fin-8fb F2: added §4.1 — dynamic withdrawal rules (`withdrawalRule`: `fixed`/`guardrails`/`percentOfCorpus`). New pure helper `resolveDynamicSpending` resolves the recurring annual cash target at each year boundary in `calculateSwpPlan`/`calculateInterestPlan`/`calculateIdcwPlan` (all three engines covered); fixed mode is structurally byte-identical to pre-F2 output. Documented guardrails band/adjust/clamp/inflation-hold precedence, the permanent (non-catch-up) held-inflation-factor semantics, percentOfCorpus's bypass of `inflateWithdrawals`, the nominal-escalation floor, new additive yearly ledger fields (`spendingMultiplier`, `guardrailAction`), the known `buildMonthlyLedger` static-target-curve limitation for Interest/IDCW, and that `cashCoverage` is always measured against the resolved (not original) target. New exports: `resolveDynamicSpending`. |
 | 1.4.0 | 6 | 2026-07-06 | fin-8fb F1: added §3.1 — §74 capital-loss carry-forward is now threaded live across projection years in `calculateSwpPlan`/`calculateInterestPlan` via a single per-year commit (`applyYearEndCarryForward`), documented per-engine scope (SWP full, Interest wired but structurally never realizes a loss today, IDCW out of scope), and the no-UI-toggle/numbers-may-improve-in-loss-scenarios rule. New exports: `assessmentYearForProjectionYear`, `applyYearEndCarryForward`. |
 | 1.3.0 | 5 | 2026-05-18 | Amendment pass (Eco): added §10 Owner-Decision Notes with three Round 3 owner decisions — §10.1 household corpus max() formula (Q-Q21-A), §10.2 δ=1 inflation convention (Q-Q05-A / Q-Q18-A), §10.3 basic-exemption setoff regime-aware conservative default (Q-Q16-A). |
 | 1.2.1 | 4 | 2026-05-18 | Aligned strategy/planning ownership with current `model.js`, `planning.js`, and `analytics.js` placement. |

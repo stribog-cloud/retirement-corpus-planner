@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Dynamic withdrawal rules (fin-8fb F2): a new `withdrawalRule` setting
+  (`fixed` / `guardrails` / `percentOfCorpus`, default `fixed`) resolves the
+  recurring annual cash target at each projection year boundary instead of a
+  flat inflation-escalated figure. `guardrails` implements a simplified
+  Guyton-Klinger policy — a spending multiplier that cuts when the
+  withdrawal rate rises too far above its initial value, raises when it
+  falls too far below, and withholds one year's inflation escalation
+  (permanently, not a deferred catch-up) after a portfolio loss while
+  spending is still elevated; the multiplier is clamped to [0.5, 2.0].
+  `percentOfCorpus` instead targets a fixed percentage of that year's
+  opening corpus every year, deliberately bypassing the inflation-escalation
+  setting. Both rules respect an optional monthly spending floor
+  (`spendingFloorMonthly`, in today's rupees) that always escalates with
+  true inflation regardless of the rule or any holdback. Planned lump sums
+  are never scaled by the rule — only the recurring cash need is. Covers all
+  three cash engines (SWP, Interest, IDCW); default state (`withdrawalRule:
+  "fixed"`) is byte-identical to pre-F2 output by construction (the new
+  helper, `resolveDynamicSpending`, short-circuits before any rule-specific
+  math in fixed mode). Yearly ledger rows gain two additive fields,
+  `spendingMultiplier` and `guardrailAction`. See
+  `docs/developer/model-contract.md` §4.1 for the full mechanics, including
+  the documented `buildMonthlyLedger` display simplification for Interest/
+  IDCW under a dynamic rule, and the coverage-semantics note (`cashCoverage`
+  is measured against the resolved, not original, target).
+
 ### Changed
 
 - §74 capital-loss carry-forward is now live across projection years in

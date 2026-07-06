@@ -182,6 +182,13 @@ const BASE = {
   inflateWithdrawals: 1,
   allowPrincipalDrawdown: 1,
   withdrawalPriority: "proRata",
+  // fin-8fb F2 — dynamic withdrawal rules (guardrails / percent-of-corpus).
+  // "fixed" preserves current behavior exactly (see resolveDynamicSpending).
+  withdrawalRule: "fixed",
+  guardrailBandPct: 20,
+  guardrailAdjustPct: 10,
+  percentOfCorpusRate: 5,
+  spendingFloorMonthly: 0,
   costBasisPct: 75,
   legacyHoldingYears: 3,
   idcwYield: 6,
@@ -317,7 +324,11 @@ const NUMERIC_FIELDS = new Set([
   "equityShareOverride",
   "preferSimpleProducts",
   "avoidCreditRisk",
-  "allowAnnuity"
+  "allowAnnuity",
+  "guardrailBandPct",
+  "guardrailAdjustPct",
+  "percentOfCorpusRate",
+  "spendingFloorMonthly"
 ]);
 
 function clamp(value, min, max) {
@@ -337,6 +348,7 @@ function normalizeState(input = {}) {
   });
   if (!["auto", "custom"].includes(next.standardDeductionMode)) next.standardDeductionMode = "auto";
   if (!["regime", "normal"].includes(next.shockModel)) next.shockModel = "regime";
+  if (!["fixed", "guardrails", "percentOfCorpus"].includes(next.withdrawalRule)) next.withdrawalRule = "fixed";
   return next;
 }
 
@@ -1513,6 +1525,142 @@ function targetMonthlyCashForMonth(params = {}, year = 1, month = 1, inflationFa
   return recurring + (month === 1 ? plannedLumpSumForYear(params, year, inflationFactor) : 0);
 }
 
+// fin-8fb F2 — dynamic withdrawal rules (guardrails / percent-of-corpus).
+//
+// Pure per-year decision helper. Engines hold spendingMultiplier,
+// heldInflationFactor, initialRate, and priorYearReturn as LOCAL variables
+// (never on the shared params object — same discipline as F1's
+// carryForwardPool) and call this once per projection year, at the year
+// boundary, to resolve THIS year's recurring annual cash target and the
+// state to carry into next year.
+//
+// Scope: operates ONLY on the recurring cash need (monthlyCashNeedForYear x
+// 12, escalated per rule). Planned lump sums are never scaled by the
+// multiplier or by percentOfCorpus — callers add plannedLumpSumForYear(...)
+// on top of this function's annualCashTarget, using the natural (un-held,
+// un-multiplied) inflation factor, exactly as targetAnnualCashForYear does
+// today.
+//
+// "fixed" mode short-circuits before any rule-specific math and reproduces
+// the exact expression targetAnnualCashForYear/targetMonthlyCashForMonth
+// already compute (same operands, same order) so engines integrating this
+// helper stay byte-identical to pre-F2 output at default state.
+//
+// Guardrails semantics (simplified Guyton-Klinger), evaluated at year >= 2
+// once initialRate is established from year 1:
+//   1. plannedAnnual = baseAnnualCash x candidateInflationFactor x multiplier
+//      (candidateInflationFactor = one more compounding step on top of last
+//      year's ACTUALLY-APPLIED, possibly-held, factor -- see below).
+//      currentRate = plannedAnnual / openingCorpus.
+//   2. Capital-preservation cut: currentRate > initialRate x (1+band) =>
+//      multiplier x= (1-adjust), guardrailAction "cut".
+//   3. Prosperity raise: currentRate < initialRate x (1-band) =>
+//      multiplier x= (1+adjust), guardrailAction "raise".
+//   4. Otherwise, inflation-hold: if last year's portfolio return was
+//      negative AND currentRate is still above initialRate, withhold this
+//      year's inflation escalation (freeze the held factor at last year's
+//      level instead of advancing it) -- guardrailAction "inflation-hold".
+//      Checked only when neither band rule fired, so an engineered band
+//      breach always reports as "cut"/"raise" even in a prior-loss year.
+//   5. multiplier is always clamped to [0.5, 2.0].
+// The held inflation factor is genuinely stateful: a freeze is a permanent
+// one-year skip, not a deferred catch-up -- later years keep compounding
+// from the frozen level, matching classic Guyton-Klinger.
+//
+// percentOfCorpus: annualCashTarget = percentOfCorpusRate% x openingCorpus,
+// every year (no multiplier, no band/hold state). inflateWithdrawals is
+// bypassed by design (documented in model-contract.md).
+//
+// Floor (both dynamic rules): spendingFloorMonthly is expressed in today's
+// rupees and always escalates by the NATURAL (un-held) inflation factor,
+// regardless of rule or holdback, then annualCashTarget is floored at
+// floorMonthly x 12 x naturalInflationFactor.
+function resolveDynamicSpending({
+  rule = "fixed",
+  year = 1,
+  openingCorpus = 0,
+  baseAnnualCash = 0,
+  inflationFactor = 1,
+  heldInflationFactor = 1,
+  initialRate = 0,
+  multiplier = 1,
+  priorYearReturn = null,
+  params = {}
+} = {}) {
+  const naturalInflationFactor = Number(params.inflateWithdrawals) === 1 ? (Number(inflationFactor) || 0) : 1;
+  const safeMultiplier = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+  const safeHeld = Number.isFinite(heldInflationFactor) && heldInflationFactor > 0 ? heldInflationFactor : 1;
+  const floorMonthly = Math.max(0, Number(params.spendingFloorMonthly) || 0);
+  const floorAnnual = floorMonthly > 0 ? floorMonthly * 12 * naturalInflationFactor : 0;
+
+  if (rule !== "guardrails" && rule !== "percentOfCorpus") {
+    // fixed (and any unrecognized rule, guarded upstream in normalizeState):
+    // identical expression to targetAnnualCashForYear's recurring term.
+    return {
+      annualCashTarget: baseAnnualCash * naturalInflationFactor,
+      nextMultiplier: 1,
+      nextInflationFactor: naturalInflationFactor,
+      inflationHeld: false,
+      guardrailAction: "none"
+    };
+  }
+
+  if (rule === "percentOfCorpus") {
+    const rate = Math.max(0, Number(params.percentOfCorpusRate) || 0) / 100;
+    const raw = rate * Math.max(0, openingCorpus);
+    return {
+      annualCashTarget: Math.max(raw, floorAnnual),
+      nextMultiplier: 1,
+      nextInflationFactor: naturalInflationFactor,
+      inflationHeld: false,
+      guardrailAction: "none"
+    };
+  }
+
+  // guardrails
+  const bandPct = Math.max(0, Number(params.guardrailBandPct) || 0) / 100;
+  const adjustPct = clamp(Number(params.guardrailAdjustPct) || 0, 0, 100) / 100;
+  const inflationRate = Number(params.inflateWithdrawals) === 1 ? (Number(params.inflation) || 0) / 100 : 0;
+  // One more compounding step on top of last year's actually-applied factor
+  // (not a fresh Math.pow(1+g, year-1) recompute) so a prior freeze is a
+  // permanent, non-catch-up reduction. Year 1 has no prior state to step
+  // from, so it takes the natural (calendar) factor directly.
+  const candidateInflationFactor = year <= 1 ? naturalInflationFactor : safeHeld * (1 + inflationRate);
+
+  let nextMultiplier = safeMultiplier;
+  let nextInflationFactor = candidateInflationFactor;
+  let inflationHeld = false;
+  let guardrailAction = "none";
+
+  if (year >= 2 && initialRate > 0) {
+    const plannedAnnual = baseAnnualCash * candidateInflationFactor * safeMultiplier;
+    const currentRate = openingCorpus > 0 ? plannedAnnual / openingCorpus : 0;
+    const upperBand = initialRate * (1 + bandPct);
+    const lowerBand = initialRate * (1 - bandPct);
+
+    if (currentRate > upperBand) {
+      nextMultiplier = clamp(safeMultiplier * (1 - adjustPct), 0.5, 2.0);
+      guardrailAction = "cut";
+    } else if (currentRate < lowerBand) {
+      nextMultiplier = clamp(safeMultiplier * (1 + adjustPct), 0.5, 2.0);
+      guardrailAction = "raise";
+    } else if (Number.isFinite(priorYearReturn) && priorYearReturn < 0 && currentRate > initialRate) {
+      nextInflationFactor = safeHeld;
+      inflationHeld = true;
+      guardrailAction = "inflation-hold";
+    }
+  }
+
+  const annualBeforeFloor = baseAnnualCash * nextInflationFactor * nextMultiplier;
+  return {
+    annualCashTarget: Math.max(annualBeforeFloor, floorAnnual),
+    nextMultiplier,
+    nextInflationFactor,
+    inflationHeld,
+    guardrailAction
+  };
+}
+
 function calculateInterestPlan(params) {
   const years = Math.round(Number(params.years) || 0);
   const effYield = effectiveYield(params);
@@ -1535,8 +1683,16 @@ function calculateInterestPlan(params) {
   // shared `params` object), so it resets automatically for every
   // calculateInterestPlan invocation, including every Monte Carlo path.
   const carryForwardPool = { stclPool: [], ltclPool: [] };
+  // fin-8fb F2 — dynamic withdrawal rule state: local to this run, same
+  // discipline as the carry-forward pool (never on shared params, resets
+  // per Monte Carlo path). See resolveDynamicSpending for semantics.
+  const dynamicRule = ["guardrails", "percentOfCorpus"].includes(params.withdrawalRule) ? params.withdrawalRule : "fixed";
+  let dynMultiplier = 1;
+  let dynHeldInflationFactor = 1;
+  let dynInitialRate = 0;
+  let dynPriorYearReturn = null;
 
-  rows.push({ year: 0, opening, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, cashCoverage: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, targetCash: 0 });
+  rows.push({ year: 0, opening, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, cashCoverage: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, targetCash: 0, spendingMultiplier: 1, guardrailAction: "none" });
 
   for (let year = 1; year <= years; year++) {
     const yearParams = paramsForProjectionYear(params, year);
@@ -1548,7 +1704,32 @@ function calculateInterestPlan(params) {
     const withdrawalInflationFactor = Math.pow(1 + inflation, year - 1);
     // real-corpus deflation factor stays (1+g)^year
     const inflationFactor = Math.pow(1 + inflation, year);
-    const targetAnnual = targetAnnualCashForYear(yearParams, year, withdrawalInflationFactor);
+    let targetAnnual;
+    let spendingMultiplier = 1;
+    let guardrailAction = "none";
+    if (dynamicRule === "fixed") {
+      targetAnnual = targetAnnualCashForYear(yearParams, year, withdrawalInflationFactor);
+    } else {
+      const dyn = resolveDynamicSpending({
+        rule: dynamicRule,
+        year,
+        openingCorpus: opening,
+        baseAnnualCash: monthlyCashNeedForYear(yearParams, year) * 12,
+        inflationFactor: withdrawalInflationFactor,
+        heldInflationFactor: dynHeldInflationFactor,
+        initialRate: dynInitialRate,
+        multiplier: dynMultiplier,
+        priorYearReturn: dynPriorYearReturn,
+        params: yearParams
+      });
+      dynMultiplier = dyn.nextMultiplier;
+      dynHeldInflationFactor = dyn.nextInflationFactor;
+      if (year === 1) dynInitialRate = opening > 0 ? dyn.annualCashTarget / opening : 0;
+      spendingMultiplier = dyn.nextMultiplier;
+      guardrailAction = dyn.guardrailAction;
+      targetAnnual = dyn.annualCashTarget + plannedLumpSumForYear(yearParams, year, withdrawalInflationFactor);
+    }
+    dynPriorYearReturn = opening > 0 ? interest / opening : 0;
     const desiredWithdrawal = params.cashMode === "monthlyTarget" ? targetAnnual : availableIncome * withdrawalShare;
     const incomeWithdrawal = Math.min(availableIncome, Math.max(0, desiredWithdrawal));
     const sale = Number(params.allowPrincipalDrawdown) === 1
@@ -1589,7 +1770,7 @@ function calculateInterestPlan(params) {
     cumInterest += interest;
     cumTax += tax;
     cumContributions += contribution;
-    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest, withdrawal, reinvested, contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown, taxableGain: Math.max(0, (taxCalc.taxProfile?.taxableInvestmentIncome || 0) + sale.taxableGain - taxableGainBenefit), realizedGain: taxCalc.realizedIncome + sale.realizedGain, unrealizedGrowth: taxCalc.unrealizedGrowth, capitalRecovered: Math.max(0, principalDrawdown - sale.realizedGain), ltcgExemptionUsed: (taxCalc.taxProfile?.ltcgExemptionUsed || 0) + sale.ltcgExemptionUsed, basicExemptionUsed: (taxCalc.taxProfile?.basicExemptionUsed || 0) + sale.basicExemptionUsed, rebateUsed: (taxCalc.taxProfile?.rebateUsed || 0) + sale.rebateUsed, rebateLost: (taxCalc.taxProfile?.rebateLost || 0) + sale.rebateLost, section80TTBUsed: taxCalc.taxProfile?.section80TTBUsed || 0, section80TTBDisallowed: taxCalc.taxProfile?.section80TTBDisallowed || 0, grossRedemption: principalDrawdown, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual });
+    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest, withdrawal, reinvested, contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown, taxableGain: Math.max(0, (taxCalc.taxProfile?.taxableInvestmentIncome || 0) + sale.taxableGain - taxableGainBenefit), realizedGain: taxCalc.realizedIncome + sale.realizedGain, unrealizedGrowth: taxCalc.unrealizedGrowth, capitalRecovered: Math.max(0, principalDrawdown - sale.realizedGain), ltcgExemptionUsed: (taxCalc.taxProfile?.ltcgExemptionUsed || 0) + sale.ltcgExemptionUsed, basicExemptionUsed: (taxCalc.taxProfile?.basicExemptionUsed || 0) + sale.basicExemptionUsed, rebateUsed: (taxCalc.taxProfile?.rebateUsed || 0) + sale.rebateUsed, rebateLost: (taxCalc.taxProfile?.rebateLost || 0) + sale.rebateLost, section80TTBUsed: taxCalc.taxProfile?.section80TTBUsed || 0, section80TTBDisallowed: taxCalc.taxProfile?.section80TTBDisallowed || 0, grossRedemption: principalDrawdown, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual, spendingMultiplier, guardrailAction });
   }
 
   const final = rows[rows.length - 1];
@@ -1950,7 +2131,14 @@ function calculateSwpPlan(params) {
   // shared `params` object), so it resets automatically for every
   // calculateSwpPlan invocation, including every Monte Carlo path.
   const carryForwardPool = { stclPool: [], ltclPool: [] };
-  rows.push({ year: 0, opening: principal, effYield: effectiveYield(params), interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing: principal, realClosing: principal, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0 });
+  // fin-8fb F2 — dynamic withdrawal rule state: local to this run, same
+  // discipline as the carry-forward pool. See resolveDynamicSpending.
+  const dynamicRule = ["guardrails", "percentOfCorpus"].includes(params.withdrawalRule) ? params.withdrawalRule : "fixed";
+  let dynMultiplier = 1;
+  let dynHeldInflationFactor = 1;
+  let dynInitialRate = 0;
+  let dynPriorYearReturn = null;
+  rows.push({ year: 0, opening: principal, effYield: effectiveYield(params), interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing: principal, realClosing: principal, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0, spendingMultiplier: 1, guardrailAction: "none" });
 
   for (let year = 1; year <= years; year++) {
     const yearParams = paramsForProjectionYear(params, year);
@@ -1959,6 +2147,35 @@ function calculateSwpPlan(params) {
     rebalanceBucketsToShare(buckets, Number(yearParams.useAssetReturns) === 1 ? clamp((Number(yearParams.equityShare) || 0) / 100, 0, 1) : 0);
     const opening = bucketValue(buckets.equity) + bucketValue(buckets.debt);
     const context = { params: yearParams, streams: emptyTaxStreams() };
+    // fin-8fb F2 — resolve this year's recurring cash target once, at the
+    // year boundary (before any monthly redemption), exactly mirroring F1's
+    // year-boundary carry-forward commit. "fixed" mode never calls
+    // resolveDynamicSpending's rule math (yearDynamic stays null) so the
+    // month loop below takes the identical targetMonthlyCashForMonth call it
+    // always has, guaranteeing byte-for-byte parity at default state.
+    const yearNaturalInflationFactor = Math.pow(1 + inflation, year - 1);
+    let yearDynamic = null;
+    let spendingMultiplier = 1;
+    let guardrailAction = "none";
+    if (dynamicRule !== "fixed") {
+      yearDynamic = resolveDynamicSpending({
+        rule: dynamicRule,
+        year,
+        openingCorpus: opening,
+        baseAnnualCash: monthlyCashNeedForYear(yearParams, year) * 12,
+        inflationFactor: yearNaturalInflationFactor,
+        heldInflationFactor: dynHeldInflationFactor,
+        initialRate: dynInitialRate,
+        multiplier: dynMultiplier,
+        priorYearReturn: dynPriorYearReturn,
+        params: yearParams
+      });
+      dynMultiplier = yearDynamic.nextMultiplier;
+      dynHeldInflationFactor = yearDynamic.nextInflationFactor;
+      if (year === 1) dynInitialRate = opening > 0 ? yearDynamic.annualCashTarget / opening : 0;
+      spendingMultiplier = yearDynamic.nextMultiplier;
+      guardrailAction = yearDynamic.guardrailAction;
+    }
     const annual = {
       interest: 0,
       tax: 0,
@@ -1991,7 +2208,22 @@ function calculateSwpPlan(params) {
       const withdrawalInflationFactor = Math.pow(1 + inflation, (monthIndex - 1) / 12);
       // real-corpus deflation uses full monthIndex/12
       const inflationFactor = Math.pow(1 + inflation, monthIndex / 12);
-      const targetMonthly = targetMonthlyCashForMonth(yearParams, year, month, withdrawalInflationFactor);
+      // fin-8fb F2: guardrails derives the monthly target from the
+      // year-resolved annual figure, re-applying the SAME within-year
+      // continuous escalation ratio that targetMonthlyCashForMonth already
+      // uses for fixed mode (monthly natural factor / year natural factor),
+      // so month 1 of a year always equals annualCashTarget/12 exactly.
+      // percentOfCorpus ignores inflateWithdrawals escalation entirely (its
+      // annualCashTarget is a flat share of opening corpus for the whole
+      // year) so it is converted to monthly/12 with no within-year ratio.
+      // Lump sums are added un-scaled by the multiplier, same as fixed mode.
+      const withinYearRatio = dynamicRule === "percentOfCorpus"
+        ? 1
+        : (yearNaturalInflationFactor > 0 ? withdrawalInflationFactor / yearNaturalInflationFactor : 1);
+      const targetMonthly = yearDynamic
+        ? (yearDynamic.annualCashTarget / 12) * withinYearRatio
+          + (month === 1 ? plannedLumpSumForYear(yearParams, year, withdrawalInflationFactor) : 0)
+        : targetMonthlyCashForMonth(yearParams, year, month, withdrawalInflationFactor);
       let desiredCash = params.cashMode === "monthlyTarget"
         ? targetMonthly
         : Math.max(0, interest) * ((Number(params.withdrawRate) || 0) / 100);
@@ -2069,6 +2301,12 @@ function calculateSwpPlan(params) {
       });
     }
 
+    // fin-8fb F2 — portfolio return for THIS year, fed into next year's
+    // guardrails inflation-hold decision (resolveDynamicSpending's
+    // priorYearReturn). Computed unconditionally (cheap); unused in fixed
+    // mode.
+    dynPriorYearReturn = opening > 0 ? annual.interest / opening : 0;
+
     // fin-8fb F1 — §74 carry-forward true-up: applied ONCE per year, against
     // the year's fully-aggregated streams (context.streams), never inside the
     // monthly redemption loop (see applyYearEndCarryForward doc comment for
@@ -2140,7 +2378,9 @@ function calculateSwpPlan(params) {
       withdrawalShortfall: annual.shortfall,
       cashCoverage: annual.targetCash ? annual.withdrawal / annual.targetCash : 0,
       targetCash: annual.targetCash,
-      lotCount: buckets.equity.lots.length + buckets.debt.lots.length
+      lotCount: buckets.equity.lots.length + buckets.debt.lots.length,
+      spendingMultiplier,
+      guardrailAction
     });
   }
   return finalizeModel(rows, params, effectiveYield(params), cumWithdrawals, cumTax, cumContributions, monthlyRows);
@@ -2158,7 +2398,14 @@ function calculateIdcwPlan(params) {
   let cumInterest = 0;
   let cumTax = 0;
   let cumContributions = 0;
-  rows.push({ year: 0, opening: closing, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0 });
+  // fin-8fb F2 — dynamic withdrawal rule state: local to this run, same
+  // discipline as SWP/Interest. See resolveDynamicSpending.
+  const dynamicRule = ["guardrails", "percentOfCorpus"].includes(patched.withdrawalRule) ? patched.withdrawalRule : "fixed";
+  let dynMultiplier = 1;
+  let dynHeldInflationFactor = 1;
+  let dynInitialRate = 0;
+  let dynPriorYearReturn = null;
+  rows.push({ year: 0, opening: closing, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0, spendingMultiplier: 1, guardrailAction: "none" });
   for (let year = 1; year <= years; year++) {
     const yearParams = paramsForProjectionYear(patched, year);
     const opening = closing;
@@ -2167,7 +2414,32 @@ function calculateIdcwPlan(params) {
     const withdrawalInflationFactor = Math.pow(1 + inflation, year - 1);
     // real-corpus deflation factor stays (1+g)^year
     const inflationFactor = Math.pow(1 + inflation, year);
-    const targetAnnual = targetAnnualCashForYear(yearParams, year, withdrawalInflationFactor);
+    let targetAnnual;
+    let spendingMultiplier = 1;
+    let guardrailAction = "none";
+    if (dynamicRule === "fixed") {
+      targetAnnual = targetAnnualCashForYear(yearParams, year, withdrawalInflationFactor);
+    } else {
+      const dyn = resolveDynamicSpending({
+        rule: dynamicRule,
+        year,
+        openingCorpus: opening,
+        baseAnnualCash: monthlyCashNeedForYear(yearParams, year) * 12,
+        inflationFactor: withdrawalInflationFactor,
+        heldInflationFactor: dynHeldInflationFactor,
+        initialRate: dynInitialRate,
+        multiplier: dynMultiplier,
+        priorYearReturn: dynPriorYearReturn,
+        params: yearParams
+      });
+      dynMultiplier = dyn.nextMultiplier;
+      dynHeldInflationFactor = dyn.nextInflationFactor;
+      if (year === 1) dynInitialRate = opening > 0 ? dyn.annualCashTarget / opening : 0;
+      spendingMultiplier = dyn.nextMultiplier;
+      guardrailAction = dyn.guardrailAction;
+      targetAnnual = dyn.annualCashTarget + plannedLumpSumForYear(yearParams, year, withdrawalInflationFactor);
+    }
+    dynPriorYearReturn = opening > 0 ? interest / opening : 0;
     const maxDistribution = Math.max(0, opening + interest) * idcwRate;
     let desiredGross = patched.cashMode === "monthlyTarget"
       ? maxDistribution
@@ -2193,7 +2465,7 @@ function calculateIdcwPlan(params) {
     cumInterest += interest;
     cumTax += tax;
     cumContributions += contribution;
-    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest: interest - tax, withdrawal, reinvested: Math.max(0, interest - desiredGross), contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: Math.max(0, desiredGross - interest), taxableGain: desiredGross, realizedGain: desiredGross, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: taxProfile.basicExemptionUsed, rebateUsed: taxProfile.rebateUsed, rebateLost: taxProfile.rebateLost, section80TTBUsed: taxProfile.section80TTBUsed || 0, section80TTBDisallowed: taxProfile.section80TTBDisallowed || 0, grossRedemption: desiredGross, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual });
+    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest: interest - tax, withdrawal, reinvested: Math.max(0, interest - desiredGross), contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: Math.max(0, desiredGross - interest), taxableGain: desiredGross, realizedGain: desiredGross, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: taxProfile.basicExemptionUsed, rebateUsed: taxProfile.rebateUsed, rebateLost: taxProfile.rebateLost, section80TTBUsed: taxProfile.section80TTBUsed || 0, section80TTBDisallowed: taxProfile.section80TTBDisallowed || 0, grossRedemption: desiredGross, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual, spendingMultiplier, guardrailAction });
   }
   return finalizeModel(rows, patched, effYield, cumWithdrawals, cumTax, cumContributions);
 }
@@ -3166,6 +3438,7 @@ export {
   plannedLumpSumForYear,
   targetAnnualCashForYear,
   targetMonthlyCashForMonth,
+  resolveDynamicSpending,
   calculate,
   buildMonthlyLedger,
   calculateGuidancePlan,
