@@ -234,6 +234,9 @@ async function auditViewport(page, viewport, view = "overview") {
       ],
       simulations: [
         ".risk-lab",
+        // fin-8fb.8 F4 UI pass 2: Historical Backtest Lab card, rendered
+        // right after the Risk Cone chart-pair and before ScenarioLibrary.
+        ".backtest-lab",
         ".scenario-library-panel",
         ".risk-control-grid",
         ".risk-mitigation-grid",

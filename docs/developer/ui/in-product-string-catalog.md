@@ -4,8 +4,8 @@ created: 2026-05-12
 updated: 2026-07-06
 type: project/ui-reference
 status: governing-reference
-version: "1.5.0"
-revision: 6
+version: "1.6.0"
+revision: 7
 last_updated: 2026-07-06
 tags: [ui, microcopy, help]
 project: fin-dashboard
@@ -35,6 +35,7 @@ The dashboard should sound like a calm retirement planner: clear, specific, and 
 - Tax Law Studio - review badge, diff confirmation, source metadata safeguards, and CA-review language.
 - Dynamic Withdrawal Rules - Fixed / Guardrails / % of corpus choice, guardrail band and adjustment, spending floor, and the honest planning-grade caveat.
 - Planned Lump-Sum Goals - up to 10 named one-time goals with amount, year, and per-goal inflation toggle.
+- Historical Backtest Lab - rolling India FY cohort success, worst/best cohort callouts, P10/P50/P90 final-year bands, historical-inflation toggle, and the "approximate history, not audited returns" caveat.
 
 ## Error and Warning Style
 
@@ -46,6 +47,7 @@ Export and trust strings must travel with downloaded artifacts. CSV/PDF/review-p
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 1.6.0 | 7 | 2026-07-06 | fin-8fb F4 UI pass 2 — Historical Backtest Lab card, its `backtestEnabled`/`backtestUseHistoricalInflation` controls, `MODEL_DEBUG_API` exposure, and the new `historicalBacktest` help topic (fin-8fb.8). |
 | 1.5.0 | 6 | 2026-07-06 | fin-8fb F2/F3 UI pass — withdrawal-rule controls, planned lump-sum goals editor, goal timeline markers, and their help-topic/aria strings (fin-8fb.8). |
 | 1.4.0 | 5 | 2026-05-20 | R4.9.5b — Decision Workspace tooltip copy and verdict variant rewrites (fin-62w). |
 | 1.3.0 | 4 | 2026-05-14 | Added Trust Center, Retiree Guided Mode, Scenario Library, and Adviser / CA Pack string contracts. |
@@ -297,3 +299,67 @@ matrix, so no baseline snapshot is affected.
 
 Cross-links added: `household` → `plannedGoals`; `risk` → `withdrawalRules`; `goals` (Gap
 Solver topic) → `plannedGoals`.
+
+---
+
+## fin-8fb.8 F4 UI — Historical Backtest Lab
+
+Phase: fin-8fb.8 (2026-07), UI pass 2. Surfaces the F4 (Historical Backtest Lab) model feature
+landed by a sibling model task (`calculateHistoricalBacktest`, commit `d670443`; see
+`docs/developer/model-contract.md` §5.1). All strings below are **[LIVE]** in `src/main.jsx`.
+
+### Simulations view — Backtest Lab card
+
+Component attachment: new `HistoricalBacktestLab` component, rendered in the Simulations view
+immediately after the Monte Carlo Risk Cone `chart-pair` and before `ScenarioLibrary`
+(`.backtest-lab` class; follows the same `PanelHead` + panel + help-chip structure as its
+sibling cards).
+
+| Field | Label | Copy |
+|-------|-------|------|
+| `backtestEnabled` | "Backtest lab" (`ChoiceGroup`) | "Enabled" / "Disabled", notes "Replay rolling FY cohorts" / "Skip the cohort replay". |
+| `backtestUseHistoricalInflation` | "Inflation replay" (`ChoiceGroup`) | "Assumed rate" / "Historical rate", notes "Flat assumed inflation for every cohort" / "Each cohort's own per-year inflation, compounded cumulatively". |
+
+- **Enabled, cohorts available**: a `risk-assumption-grid` of `MiniMetric` tiles — Cohort
+  Success (via `formatProbabilityForDisplay`, the identical 5pp-bucket/"rare"/"very likely"
+  language used by the Monte Carlo end-target-chance tiles), Cohorts Tested, Dataset Window
+  (`DATASET_META.firstFy`–`lastFy`), and a Worst Cohort callout (starting FY, ending corpus,
+  depletion year or "never depleted"). A second `metric-row four` shows final-year P10/P50/P90
+  bands with an inline `PercentileSparkline` next to each tile — reused with no prop changes
+  from the Risk Cone card's own `[p10, p50, p90]` usage — plus a Best Cohort callout.
+- **Disabled**: the enable/disable `ChoiceGroup` stays fully interactive; the rest of the card
+  is replaced by a single muted note ("Turn the backtest lab on to replay every rolling
+  N-year window of bundled India market history through this plan.") rather than showing
+  grayed-out stale data.
+- **Horizon exceeds dataset (`cohortCount: 0`, zero-cohort edge case)**: a muted note naming
+  the current horizon, the dataset's fiscal-year window, and the longest horizon that still
+  produces at least one cohort (`DATASET_META.count` years).
+- **Still computing**: reuses the existing `AnalyticsPendingNotice` component (previously
+  defined but unwired in the codebase) rather than inventing a new pending pattern. Gated on
+  the data shape, not on `analyticsPending`/`modelPending` timing — the fast-tier fallback's
+  `pendingHistoricalBacktest()` placeholder always reports `cohortCount: 0` with a *populated*
+  `percentileBands` (the single model path repeated three ways); the real zero-cohort result
+  reports `cohortCount: 0` with *empty* `percentileBands` arrays. That shape difference is the
+  reliable "real cohorts have arrived" signal, mirroring the existing
+  `immediateMcSimulations === 0` pattern used for Monte Carlo's own slow-tier settle detection.
+- **Trust language**: an in-card `risk-disclosure`-styled box (reusing the Risk Cone card's own
+  disclosure treatment rather than a new visual language): "Approximate index-level history;
+  not audited returns. N years of bundled India FY data replayed through the exact same cash
+  engine as the live projection — a planning sensitivity against real historical sequences, not
+  a market forecast. Open Backtest Lab help for the full dataset provenance."
+
+### MODEL_DEBUG_API
+
+Added `calculateHistoricalBacktest`, `INDIA_ANNUAL_RETURNS`, and `DATASET_META` for e2e parity
+testing, following the existing debug-API exposure pattern (dev-mode and `?finTestApi`-gated,
+same as every other model export already on the object).
+
+### New help topic
+
+- **Historical Backtest Lab** (`historicalBacktest`, category `metrics`) — mechanics (rolling
+  cohort windows, success definition identical to Monte Carlo's), how it differs from Monte
+  Carlo (real recorded fiscal years vs. randomly sampled shocks), dataset provenance summary,
+  and the same honest planning-grade caveat language used by `withdrawalRules`.
+
+Cross-links added: `risk` → `historicalBacktest`; `understandingMC` → `historicalBacktest`;
+`sequenceOfReturns` → `historicalBacktest`.

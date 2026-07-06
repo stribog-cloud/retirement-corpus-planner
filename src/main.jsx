@@ -130,6 +130,7 @@ import {
   sampledReturnParams,
   calculateSequencePath,
   calculateMonteCarlo,
+  calculateHistoricalBacktest,
   solveTopup,
   solveReturn,
   planCoversMonthlyCash,
@@ -151,6 +152,7 @@ import {
   sanitizePlannedLumpSums,
   resolvePlannedLumpSums
 } from "./model.js";
+import { INDIA_ANNUAL_RETURNS, DATASET_META } from "./data/india-annual-returns.js";
 import {
   PLANNING_VERSION,
   INSTRUMENT_CATALOG,
@@ -1927,6 +1929,81 @@ function ScenarioLibrary({ scenarios, onApply, onSave, onExport, onHelp, disable
   );
 }
 
+// fin-8fb.8 F4 UI — Historical Backtest Lab card. Rolling-cohort counterpart
+// to the Risk Cone's Monte Carlo card, sitting directly below it in the
+// Simulations view. Reads the memoized `backtest` field the slow analytics
+// bundle exposes (src/analytics.js) — null while backtestEnabled !== 1.
+function HistoricalBacktestLab({ state, setField, backtest, analyticsHorizonYears, modelPending, openHelp }) {
+  const backtestOn = Number(state.backtestEnabled) === 1;
+  const maxFeasibleHorizon = DATASET_META.count;
+  // A dataset shorter than the requested horizon always yields the
+  // documented zero-cohort shape (docs/developer/model-contract.md §5.1),
+  // regardless of which analytics tier answers — check this from the
+  // horizon/dataset relationship directly rather than waiting on `backtest`.
+  const horizonTooLong = analyticsHorizonYears <= 0 || analyticsHorizonYears > maxFeasibleHorizon;
+  // fin-8fb.8: analyticsPending is NOT a reliable "real cohorts have
+  // arrived" signal — it clears after the FAST tier settles, but the real
+  // cohort replay is slow-tier only (mirrors the documented
+  // immediateMcSimulations pattern for Monte Carlo above). The fast-tier
+  // fallback's pendingHistoricalBacktest() placeholder always reports
+  // cohortCount: 0 with a *populated* percentileBands (the exact single
+  // model path, repeated for p10/p50/p90); the real zero-cohort result
+  // (horizon exceeds dataset) reports cohortCount: 0 with *empty*
+  // percentileBands arrays. That shape difference is what distinguishes
+  // "still computing" from "genuinely no cohorts" here.
+  const backtestSettled = Boolean(backtest) && !(backtest.cohortCount === 0 && backtest.percentileBands.p10.length > 0);
+  const stillComputing = backtestOn && !horizonTooLong && !backtestSettled;
+  const successDisplay = backtestSettled && backtest.cohortCount > 0 ? formatProbabilityForDisplay(backtest.successRate) : null;
+  const bandsFinalIndex = backtestSettled ? backtest.percentileBands.p10.length - 1 : -1;
+  const finalP10 = bandsFinalIndex >= 0 ? backtest.percentileBands.p10[bandsFinalIndex] : 0;
+  const finalP50 = bandsFinalIndex >= 0 ? backtest.percentileBands.p50[bandsFinalIndex] : 0;
+  const finalP90 = bandsFinalIndex >= 0 ? backtest.percentileBands.p90[bandsFinalIndex] : 0;
+
+  return (
+    <article className={`panel wide backtest-lab ${backtestOn ? "" : "is-off"}`} aria-label="Historical backtest lab">
+      <PanelHead eyebrow="Historical Backtest" title="Backtest Lab" note="Every rolling India FY window replayed through the live cash engine — a deterministic reality check, not a market forecast." help={() => openHelp("historicalBacktest")} />
+      <ChoiceGroup label="Backtest lab" value={state.backtestEnabled} onChange={(value) => setField("backtestEnabled", Number(value), { feedback: { type: "action", id: "risk", message: Number(value) === 1 ? "Backtest lab enabled" : "Backtest lab disabled" } })} options={[
+        { value: 1, label: "Enabled", note: "Replay rolling FY cohorts" },
+        { value: 0, label: "Disabled", note: "Skip the cohort replay" }
+      ]} />
+      {!backtestOn ? (
+        <p className="backtest-note">Turn the backtest lab on to replay every rolling {Math.max(1, analyticsHorizonYears)}-year window of bundled India market history through this plan.</p>
+      ) : horizonTooLong ? (
+        <p className="backtest-note">
+          {analyticsHorizonYears <= 0
+            ? "Set a projection horizon of at least 1 year to run the backtest."
+            : `A ${analyticsHorizonYears}-year horizon exceeds the ${maxFeasibleHorizon}-year dataset window (${DATASET_META.firstFy} to ${DATASET_META.lastFy}). The longest horizon with at least one cohort is ${maxFeasibleHorizon} years.`}
+        </p>
+      ) : stillComputing ? (
+        <AnalyticsPendingNotice modelPending={modelPending} />
+      ) : (
+        <>
+          <div className="risk-assumption-grid">
+            <MiniMetric label="Cohort Success" value={successDisplay ? successDisplay.primary : "—"} note="Share of historical cohorts finishing at or above target — same finish-line definition as Monte Carlo's end-target chance, but replayed against real history instead of random shocks." />
+            <MiniMetric label="Cohorts Tested" value={`${backtest.cohortCount}`} note={`Rolling ${backtest.horizon}-year windows, one starting in every fiscal year the dataset allows.`} />
+            <MiniMetric label="Dataset Window" value={`${DATASET_META.firstFy} to ${DATASET_META.lastFy}`} note={`${DATASET_META.count} years of bundled India fiscal-year history.`} />
+            <MiniMetric label="Worst Cohort" value={backtest.worst ? formatInr(backtest.worst.endingCorpus) : "—"} note={backtest.worst ? `Started FY ${backtest.worst.startFy}${backtest.worst.depletionYear ? ` · depleted in year ${backtest.worst.depletionYear}` : " · never depleted"}` : "No cohorts to compare."} />
+          </div>
+          <div className="metric-row four">
+            <MiniMetric label="P10 (final)" value={formatInr(finalP10)} note="Unlucky historical cohort: 10% of cohorts land here or worse."><PercentileSparkline values={[finalP10, finalP50, finalP90]} /></MiniMetric>
+            <MiniMetric label="P50 (final)" value={formatInr(finalP50)} note="Median historical cohort outcome."><PercentileSparkline values={[finalP10, finalP50, finalP90]} /></MiniMetric>
+            <MiniMetric label="P90 (final)" value={formatInr(finalP90)} note="Lucky historical cohort: 10% of cohorts land here or better."><PercentileSparkline values={[finalP10, finalP50, finalP90]} /></MiniMetric>
+            <MiniMetric label="Best Cohort" value={backtest.best ? formatInr(backtest.best.endingCorpus) : "—"} note={backtest.best ? `Started FY ${backtest.best.startFy}` : "No cohorts to compare."} />
+          </div>
+          <ChoiceGroup label="Inflation replay" value={state.backtestUseHistoricalInflation} onChange={(value) => setField("backtestUseHistoricalInflation", Number(value), { feedback: { type: "action", id: "risk", message: Number(value) === 1 ? "Historical inflation replay enabled" : "Assumed inflation rate restored" } })} options={[
+            { value: 0, label: "Assumed rate", note: "Flat assumed inflation for every cohort" },
+            { value: 1, label: "Historical rate", note: "Each cohort's own per-year inflation, compounded cumulatively" }
+          ]} />
+          <div className="risk-disclosure backtest-disclosure" role="note">
+            <strong>Backtest disclosure</strong>
+            <span>Approximate index-level history; not audited returns. {DATASET_META.count} years of bundled India FY data replayed through the exact same cash engine as the live projection — a planning sensitivity against real historical sequences, not a market forecast. Open Backtest Lab help for the full dataset provenance.</span>
+          </div>
+        </>
+      )}
+    </article>
+  );
+}
+
 function ReviewPackPanel({ assumptionFingerprint, activeTaxLaw, mc, scenarioCount, onExportPack, onExportPdf, onExportCsv, onHelp, disabled = false }) {
   return (
     <article className="panel wide review-pack-panel" aria-label="Adviser and CA review pack">
@@ -2451,7 +2528,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
       summary: "Monte Carlo paths now generate year-by-year sequence-of-returns paths and rerun the active cash engine, so bad early returns can change depletion, P10/P50/P90, and end-target chance.",
       steps: ["End Target Chance is the share of sampled paths whose final nominal corpus clears the inflated corpus target.", "Set sample size and seed when you want repeatable risk runs; higher sample sizes are slower but smoother.", "Use equity/debt volatility and correlation when asset-blend mode is active; manual-return mode uses the single annual volatility field.", "SWP, IDCW, and interest modes keep their active cash semantics inside the risk surface.", "Read P10 as the downside case and P50 as the median path, not as guarantees."],
       category: "metrics",
-      related: ["understandingMC", "planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "riskGuardrail", "displayRule", "withdrawalRules"]
+      related: ["understandingMC", "planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "riskGuardrail", "displayRule", "withdrawalRules", "historicalBacktest"]
     },
     sensitivity: {
       title: "Sensitivity Heatmap",
@@ -3023,7 +3100,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
         "The simulation is not a market forecast — it is a stress-test of your assumptions."
       ],
       category: "concepts",
-      related: ["planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "displayRule", "risk"]
+      related: ["planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "displayRule", "risk", "historicalBacktest"]
     },
     realVsNominal: {
       title: "Real vs Nominal Values",
@@ -3049,7 +3126,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
         "Use the Crash In First Decade scenario in the Scenario Library to specifically test sequence risk."
       ],
       category: "concepts",
-      related: ["understandingMC", "defensiveCover", "scenarioLibrary", "risk", "planEndurance", "scenarioDepletion"]
+      related: ["understandingMC", "defensiveCover", "scenarioLibrary", "risk", "planEndurance", "scenarioDepletion", "historicalBacktest"]
     },
     defensiveCover: {
       title: "Defensive Cover",
@@ -3359,6 +3436,46 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
       ],
       category: "metrics",
       related: ["household", "goals", "withdrawalRules"]
+    },
+    historicalBacktest: {
+      title: "Historical Backtest Lab",
+      summary: "The backtest lab replays every rolling window of bundled India market history through the same live cash engine Monte Carlo uses, instead of randomly sampled returns. Each cohort starts in a different real fiscal year and lives through the actual sequence of returns and inflation that followed it.",
+      steps: [
+        "A cohort is one rolling window: for a 30-year plan, the first cohort starts FY1990-91 and runs its actual 30-year return sequence; the next starts FY1991-92, and so on, until the window no longer fits inside the dataset.",
+        "Cohort success uses the exact same finish line as Monte Carlo: the cohort's final closing corpus must be at or above your target corpus, nothing more.",
+        "Worst and best cohort callouts name the actual starting fiscal year and ending corpus, plus whether that cohort's corpus ever hit zero and in which year.",
+        "P10/P50/P90 bands summarise the final-year corpus across every cohort tested, read the same way as the Monte Carlo risk cone.",
+        "Turn on Historical rate to replace the flat assumed inflation with each cohort's own per-year inflation history, compounding cumulatively year over year instead of using a blended average.",
+        "The lab needs at least as many dataset years as your projection horizon; a horizon longer than the dataset produces zero cohorts and a message naming the longest horizon that still works."
+      ],
+      sections: [
+        {
+          title: "How This Differs From Monte Carlo",
+          items: [
+            "Monte Carlo samples random year-by-year shocks from a volatility and shock-model assumption; the backtest replays real recorded fiscal years, with no randomness at all.",
+            "Both use the identical override plumbing and the identical success definition, so the two numbers are directly comparable — Monte Carlo asks 'across many imagined futures,' the backtest asks 'across every real window this specific history contains.'",
+            "The backtest is deterministic: the same plan and dataset always produce the same cohort results, with no seed or sample-size setting."
+          ]
+        },
+        {
+          title: "Dataset Provenance",
+          items: [
+            "The bundled dataset covers India fiscal years FY1990-91 through FY2024-25 (35 years): BSE Sensex fiscal-year returns for equity, an RBI 10-year G-sec-based accrual proxy for debt, and MOSPI CPI-IW/CPI-Combined figures for inflation.",
+            "Equity and debt figures are approximations, not audited total-return indices — see the dataset's own derivation notes for the exact construction method and known limitations.",
+            "The lab always reports the active dataset's fiscal-year window and cohort count, so you can see exactly how much history backs the current result."
+          ]
+        },
+        {
+          title: "Read This Honestly",
+          items: [
+            "This is a planning-grade sensitivity against one specific, approximate history — not audited performance data, and not a guarantee that the future will resemble any single cohort shown here.",
+            "A small number of cohorts (a long horizon against a 35-year dataset) means each cohort swings the success rate by a large step; treat the result as a reality check, not a statistically smooth probability.",
+            "Use the backtest alongside Monte Carlo, not instead of it — Monte Carlo explores many hypothetical futures, the backtest grounds the plan in what India markets actually did."
+          ]
+        }
+      ],
+      category: "metrics",
+      related: ["risk", "understandingMC", "sequenceOfReturns", "monteCarloUncertainty", "planEndurance", "targetConfidence"]
     }
   };
 }
@@ -3699,7 +3816,7 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
     core: ["principal", "incomeMode", "cashMode", "annualRate", "portfolioIncomeYield", "withdrawRate", "compounding", "years"],
     assets: ["useAssetReturns", "equityShare", "equityReturn", "debtReturn", "equityIncomeYield", "equityIncomePolicy", "debtIncomeYield", "debtIncomePolicy", "expenseRatio", "equityInstrument", "equityProductClass", "equityAcquisitionYear", "equitySttPaid", "debtInstrument", "debtProductClass", "debtAcquisitionYear"],
     tax: ["taxProfileMode", "taxRegime", "ageBand", "residentStatus", "pensionIncome", "otherIncome", "standardDeductionMode", "standardDeduction", "section87A", "section87AInterpretation", "tdsEnabled", "interestTdsRate", "nriWithholdingRate", "form15Declaration", "taxSlab", "costBasisPct", "equityFmv2018Pct", "useFmvGrandfathering", "legacyHoldingYears", "withdrawalPriority"],
-    risk: ["inflation", "taxRate", "harvestLtcg", "inflateWithdrawals", "allowPrincipalDrawdown", "withdrawalRule", "guardrailBandPct", "guardrailAdjustPct", "percentOfCorpusRate", "spendingFloorMonthly", "idcwYield", "annualContribution", "contributionStepUp", "volatility", "equityVolatility", "debtVolatility", "equityDebtCorrelation", "shockModel", "monteCarloSamples", "monteCarloSeed", "glidePathEnabled", "glidePathEndEquity", "glidePathYears", "shockYear", "shockDrop", "monthlyTarget", "targetCorpus", "lockCashBucket", "cashBucketMonthsOverride", "lockEquityShare", "equityShareOverride", "preferSimpleProducts", "avoidCreditRisk", "allowAnnuity"],
+    risk: ["inflation", "taxRate", "harvestLtcg", "inflateWithdrawals", "allowPrincipalDrawdown", "withdrawalRule", "guardrailBandPct", "guardrailAdjustPct", "percentOfCorpusRate", "spendingFloorMonthly", "idcwYield", "annualContribution", "contributionStepUp", "volatility", "equityVolatility", "debtVolatility", "equityDebtCorrelation", "shockModel", "monteCarloSamples", "monteCarloSeed", "glidePathEnabled", "glidePathEndEquity", "glidePathYears", "shockYear", "shockDrop", "monthlyTarget", "targetCorpus", "lockCashBucket", "cashBucketMonthsOverride", "lockEquityShare", "equityShareOverride", "preferSimpleProducts", "avoidCreditRisk", "allowAnnuity", "backtestEnabled", "backtestUseHistoricalInflation"],
     law: ["taxLawJson"],
     privacy: []
   };
@@ -4059,7 +4176,11 @@ function useRetirementDashboard() {
 	    requiredReturnForCash,
 	    maxMonthlyCash,
 	    interestShareForTarget,
-	    optimum
+	    optimum,
+	    // fin-8fb.8 F4 UI: null when backtestEnabled !== 1 (see analytics.js);
+	    // a non-null placeholder (cohortCount:0, populated percentileBands)
+	    // while the slow-tier cohort replay is still catching up.
+	    backtest
 	  } = deferredAnalyticsValue;
   // immediateMcSimulations: reads from the IMMEDIATE bundle so that
   // data-analytics-slow-pending correctly tracks when the slow tier (real MC)
@@ -5689,6 +5810,7 @@ function useRetirementDashboard() {
     interestShareForTarget,
     y1Tax,
     optimum,
+    backtest,
     optimumGuidance,
     pinnedStrategy,
 	    activeTaxLaw,
@@ -5912,6 +6034,7 @@ function DashboardPages() {
     interestShareForTarget,
     y1Tax,
     optimum,
+    backtest,
     optimumGuidance,
     pinnedStrategy,
 	    activeTaxLaw,
@@ -6624,6 +6747,15 @@ function DashboardPages() {
                   </div>
                 </article>
               </div>
+
+              <HistoricalBacktestLab
+                state={state}
+                setField={setField}
+                backtest={backtest}
+                analyticsHorizonYears={analyticsHorizonYears}
+                modelPending={modelPending}
+                openHelp={openHelp}
+              />
                 </>
               ) : null}
 
@@ -7458,6 +7590,9 @@ const MODEL_DEBUG_API = {
   annualPortfolioIncomeRate,
   calculateSequencePath,
   calculateMonteCarlo,
+  calculateHistoricalBacktest,
+  INDIA_ANNUAL_RETURNS,
+  DATASET_META,
   quantile,
   annualSequenceShock,
   grandfatheredEquityGain,

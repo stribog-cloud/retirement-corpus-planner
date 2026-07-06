@@ -2302,10 +2302,79 @@ p {
 
 .planner-journey,
 .risk-lab,
+.backtest-lab,
 .ledger-audit-cockpit {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--blue) 8%, transparent), transparent 52%),
     var(--panel);
+}
+
+/* fin-8fb.8 F4 UI — Historical Backtest Lab card. Shares the risk-lab gradient
+   family (same Simulations view, same --risk accent already used by the Risk
+   Lab controls above it) rather than inventing a new visual language. */
+.backtest-lab .choice-group {
+  margin-top: 8px;
+}
+
+.backtest-lab.is-off {
+  opacity: 0.86;
+}
+
+.backtest-lab.is-off .choice-group {
+  opacity: 1;
+}
+
+.backtest-note {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.56rem;
+  line-height: 1.45;
+  font-weight: 830;
+}
+
+.backtest-disclosure {
+  margin-top: 8px;
+}
+
+/* fin-8fb.8 F4 UI — first production usage of AnalyticsPendingNotice (defined
+   pre-existing, previously unwired into any card). Mirrors .risk-disclosure's
+   bordered-box treatment; the icon column uses the existing global `svg`
+   default size (18px, styles.css:148) rather than a bespoke icon box. */
+.analytics-sync-notice {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, var(--risk) 28%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-2) 88%, transparent);
+  padding: 9px;
+}
+
+.analytics-sync-notice svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--risk);
+}
+
+.analytics-sync-notice strong {
+  display: block;
+  font-size: 0.58rem;
+  line-height: 1.2;
+}
+
+.analytics-sync-notice span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.54rem;
+  line-height: 1.4;
+  font-weight: 830;
 }
 
 .planner-stepper {
@@ -8127,6 +8196,7 @@ td {
   .scenario-timeline-panel,
   .tax-command-center,
   .risk-lab,
+  .backtest-lab,
   .ledger-audit-cockpit {
     border-radius: 18px;
   }
