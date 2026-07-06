@@ -4,8 +4,8 @@ created: 2026-05-12
 updated: 2026-07-06
 type: project/developer-doc
 status: governing-reference
-version: "2.6.0"
-revision: 14
+version: "2.6.1"
+revision: 15
 last_updated: 2026-07-06
 tags: [developer-docs, public-surface]
 project: fin-dashboard
@@ -43,7 +43,7 @@ The generated artifact is a local/self-contained distribution surface, not a hos
 | Overview | stable | Decision cockpit, Trust Center, monthly solver, scenario timeline |
 | Guided Planner | stable | Retiree Guided Mode, strategy shortlist, household action plan |
 | Tax Studio | stable | Tax profile, product classification, tax-law ruleset, SWP/IDCW facts |
-| Simulations | stable | Scenario Library, risk lab, Monte Carlo paths, heatmap |
+| Simulations | stable | Scenario Library, risk lab, Monte Carlo paths, heatmap, Historical Backtest Lab (deterministic historical cohort replay) |
 | Ledger | stable | Annual schedule, monthly FIFO trail, exports, review pack |
 | Assumption Studio | stable | Full editable assumption surface and search |
 | Help | stable | Guided tutorial, context coach, topic library, local data controls |
@@ -53,8 +53,8 @@ The generated artifact is a local/self-contained distribution surface, not a hos
 
 | Download | Posture | Stability Notes |
 |----------|---------|-----------------|
-| `retirement_corpus_income_planner.pdf` | stable | Branded planning report; not PDF/UA certified |
-| `retirement_corpus_income_planner.csv` | stable | Ledger and metadata audit trail |
+| `retirement_corpus_income_planner.pdf` | stable | Branded planning report; not PDF/UA certified. v2.0.0 added an additive §3 Plan Diagnosis dynamic-spending note (active only under the guardrails withdrawal rule), a §5 Scenarios "Historical Backtest Lab" sub-section (success-rate sentence, worst/best cohort lines, cohort autotable), and a §7 Methodology assumptions sub-page (withdrawal rule/rebalancing flag, one-row-per-goal planned-goals table) — no existing section removed or renumbered |
+| CSV export (multi-sheet ZIP: `overview.csv`, `monthly.csv`, `yearly.csv`, `tax.csv`, `scenarios.csv`, `metadata.csv`, plus a conditional 7th `backtest.csv`) | stable | Ledger and metadata audit trail. v2.0.0 added four additive `yearly.csv` columns (`spending_multiplier`, `guardrail_action`, `rebalance_gross_inr`, `rebalance_tax_inr`), additive `metadata.csv` withdrawal-rule/rebalance/backtest/per-goal columns, and the new conditional `backtest.csv` sheet (ships only when `backtestEnabled === 1` and the cohort replay is non-empty) carrying the full Historical Backtest Lab cohort replay. See [Export Pipeline](export-pipeline.md) §7 for the full column/section inventory |
 | Scenario snapshot JSON | stable | Portable saved plan snapshot |
 | Tax ruleset JSON | stable | Editable tax-law ruleset |
 | Adviser / CA Pack JSON | stable | Professional review bundle |
@@ -87,14 +87,17 @@ Use [Deprecation Register](deprecation.md) for any future removal or incompatibl
 
 ## 8. Public Release Rule
 
-`docs/internal/` remains tracked for the private repository. Before any public release, follow ADR-0002: move curated material into public docs and ignore `docs/internal/`, or explicitly approve selected internal documents after privacy/security review.
+The repository has been genuinely public on GitHub since 2026-05-25 (`v1.0.0` tag, commit `0fefabd`, signed) under ADR-0002 Option 1: `docs/internal/` is gitignored and excluded from the public tree, while the approved included set — `docs/user/`, `docs/developer/` (including this map), `src/`, `tests/`, `scripts/`, and the public trust/contributor files — carries no dependency on excluded `docs/internal/` content. This is the live, ongoing posture, not a hypothetical future gate; it governs the in-progress `v2.0.0` cycle the same way it governed `v1.0.0`.
 
-Public release is blocked until `docs/internal/PUBLIC-RELEASE-READINESS.md` is complete and the GitHub quality-gate workflow mirrors local `make all`.
+Public release is no longer a one-time pre-launch decision to clear. Each subsequent release owes its own readiness check: `docs/internal/PUBLIC-RELEASE-READINESS.md` tracks that release's open blockers in its Decision Log, and the public GitHub Actions workflows (`ci.yml`, `release.yml`) must stay green on every push, PR, and tagged release — mirroring what `make all` checks locally. See `docs/internal/CHARTER-COMPLIANCE-ANNEX.md` §2.3.1 for the full owner-approval record, the approved included/excluded set, and the cross-reference attestation.
+
+**No public export removed or renamed in v2.0.0.** Every v2.0.0 addition to `src/model.js` — `calculateHistoricalBacktest`, `historicalReturnOverrideForYear`, `cumulativeInflationFactor`, `historicalInflationRateForYear`, `resolveDynamicSpending`, `sanitizePlannedLumpSums`, `resolvePlannedLumpSums`, `assessmentYearForProjectionYear`, `applyYearEndCarryForward`, and `rebalanceBucketsToShare` — is a net-new export or an additive/signature-compatible change to an existing one (`rebalanceBucketsToShare` gained two optional trailing arguments with backward-compatible defaults; see the Revision History rows below for each feature). The CSV and PDF additions in §3 above are additive sections/columns only. No existing export, state field, CSV column, PDF section, or UI page was removed or renamed, so no migration document under §2.5 Developer-Facing Documentation is required for this release.
 
 ## Revision History
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 2.6.1 | 15 | 2026-07-06 | fin-8fb docs refresh: §2 Simulations now names the Historical Backtest Lab card; §3 Download Surfaces renamed the CSV row to reflect the actual multi-sheet ZIP (`overview.csv`/`monthly.csv`/`yearly.csv`/`tax.csv`/`scenarios.csv`/`metadata.csv` plus conditional `backtest.csv`) and named the v2.0.0 PDF §3/§5/§7 additions; §8 Public Release Rule reworded from a future/hypothetical pre-launch gate to the actual ongoing public-GitHub posture (mirrors the `docs/internal/PUBLIC-RELEASE-READINESS.md` 2026-07-06 reconciliation) and now states explicitly that no public export was removed or renamed in v2.0.0, so no migration document is required. |
 | 2.6.0 | 14 | 2026-07-06 | fin-8fb F5: `src/model.js` gained one new internal-stable export, `rebalanceBucketsToShare`, supporting the opt-in tax-aware rebalancing change (see model-contract.md §3.2). Normalized state gained an additive `rebalanceTaxAware` field (default 0). Yearly ledger rows from `calculateSwpPlan` gained two additive fields, `rebalanceGross` and `rebalanceTax` — additive only, both 0 in default mode, no existing field removed or renamed. No change to the exports-as-one-bucket posture. |
 | 2.5.0 | 13 | 2026-07-06 | fin-8fb F4: `src/model.js` gained four new internal-stable exports — `calculateHistoricalBacktest`, `historicalReturnOverrideForYear`, `cumulativeInflationFactor`, `historicalInflationRateForYear` — supporting the Historical Backtest Lab engine (see model-contract.md §5.1); `src/analytics.js` gained one new internal-stable export, `pendingHistoricalBacktest`. Normalized state gained two additive fields, `backtestEnabled` (default 1) and `backtestUseHistoricalInflation` (default 0). `computeSlowBundle`/`computeAnalyticsBundle` gained an additive `backtest` field (`null` when disabled). No existing field removed or renamed; no change to the exports-as-one-bucket posture. The UI card, toggle, and `MODEL_DEBUG_API` exposure are phase 2 and not yet part of the public surface. |
 | 2.4.0 | 12 | 2026-07-06 | fin-8fb F3: `src/model.js` gained two new internal-stable exports, `sanitizePlannedLumpSums` and `resolvePlannedLumpSums`, supporting the multi-goal planned lump sums change (see model-contract.md §4.2). Normalized state gained an additive `plannedLumpSums` array field (legacy `plannedLumpSumAmount`/`plannedLumpSumYear`/`plannedLumpSumInflate` fields remain, unchanged, for back-compat loading); `householdPlanProfile` gained an additive `plannedLumpSums` field, scoped to `useHouseholdPlan` same as the legacy triple. No existing field removed or renamed; no change to the exports-as-one-bucket posture. |

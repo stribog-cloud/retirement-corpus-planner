@@ -1,12 +1,12 @@
 ---
 title: "Retirement Planner IA Contract"
 created: 2026-05-12
-updated: 2026-05-15
+updated: 2026-07-06
 type: project/ui-reference
 status: governing-reference
-version: "2.0.0"
-revision: 3
-last_updated: 2026-05-15
+version: "2.0.1"
+revision: 4
+last_updated: 2026-07-06
 tags: [ui, information-architecture]
 project: fin-dashboard
 owners: [msambare]
@@ -32,7 +32,7 @@ The app is a single-file SPA. It does not use URL routes yet; the route contract
 | Overview | Is this plan usable? | Verdict, trust guardrail, cash solver, scenario timeline, KPI evidence |
 | Guided Planner | What strategy fits this retiree? | Household questions, strategy shortlist, withdrawal policy, action plan |
 | Tax Studio | Can I trust the tax number? | Tax profile, ruleset provenance, product treatment, SWP/IDCW evidence |
-| Simulations | What breaks the plan? | Scenario Library, Risk Lab, Monte Carlo, heatmap, downside explanation |
+| Simulations | What breaks the plan? | Scenario Library, Risk Lab, Monte Carlo, Historical Backtest Lab, heatmap, downside explanation |
 | Ledger | Can this be reviewed? | Annual and monthly evidence, exports, review pack, reconciliation |
 
 ## 3. Adjacent Surfaces
@@ -70,6 +70,7 @@ A page is incomplete if it is only charts and numbers. Each page needs:
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 2.0.1 | 4 | 2026-07-06 | Added the Historical Backtest Lab to the Simulations page's required surface list (fin-8fb F4). |
 | 2.0.0 | 3 | 2026-05-15 | Rebuilt IA contract with page questions, adjacent surfaces, navigation rules, and page acceptance criteria. |
 | 1.1.0 | 2 | 2026-05-14 | Added Trust Center, Retiree Guided Mode, Scenario Library, and Adviser / CA Pack to the IA contract. |
 | 1.0.0 | 1 | 2026-05-12 | Added IA contract for the SPA. |
