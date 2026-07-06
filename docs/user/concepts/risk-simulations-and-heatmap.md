@@ -1,13 +1,13 @@
 ---
 title: "Risk, Simulations, and Heatmap Colours"
 created: 2026-05-15
-updated: 2026-05-15
+updated: 2026-07-06
 type: project/user-doc
 status: published
-version: "1.0.0"
-revision: 1
-last_updated: 2026-05-15
-tags: [user-docs, concepts, risk, monte-carlo, heatmap]
+version: "1.1.0"
+revision: 2
+last_updated: 2026-07-06
+tags: [user-docs, concepts, risk, monte-carlo, heatmap, historical-backtest]
 project: fin-dashboard
 owners: [msambare]
 audience: [retiree, family-planner, adviser, evaluator]
@@ -59,8 +59,26 @@ Real values are shown in today's rupees. A nominal future corpus can be high whi
 
 When a plan is close to the target, increase risk samples, compare standard scenarios, inspect the ledger, and export the review pack before acting.
 
+## 7. Historical Backtest Lab
+
+The Historical Backtest Lab replays every rolling cohort found in the bundled, approximate India market history through the same live cash engine Monte Carlo uses — a real recorded sequence of years instead of a randomly sampled one.
+
+| Concept | Meaning |
+|---------|---------|
+| Cohort | One rolling window the length of your projection horizon — a 30-year plan tests a cohort starting FY1990-91, another starting FY1991-92, and so on, until no more full windows fit inside the dataset |
+| Success rate | Share of cohorts whose final closing corpus meets or exceeds your target, using the same finish line as End Target Chance |
+| Worst / best cohort | The actual starting fiscal year and ending corpus for the weakest and strongest cohort tested |
+| P10/P50/P90 bands | Final-year corpus percentiles across cohorts, read the same way as the Monte Carlo risk cone |
+
+**How it differs from Monte Carlo.** Monte Carlo samples random year-by-year return shocks from your volatility and shock-model assumptions — it explores many imagined futures. The backtest instead replays real recorded fiscal years with no randomness at all, asking what would have happened across every window this specific history actually contains. Both use the identical success definition, so the two numbers are directly comparable; use them alongside each other, not as substitutes.
+
+**Dataset provenance and caveats.** The bundled dataset is a planning-grade approximation covering India fiscal years FY1990-91 through FY2024-25: BSE Sensex-based equity returns, an RBI G-sec-based debt proxy, and MOSPI CPI-based inflation. It is not audited performance data. A long horizon tested against this fixed 35-year window produces few cohorts, so a single cohort can swing the success rate by a large step — treat the result as a reality check against one specific history, not a statistically smooth probability, and not a guarantee that future markets will resemble any cohort shown.
+
+**Interaction with dynamic withdrawal rules.** The backtest replays your plan exactly as configured, including an active withdrawal rule (see [Retirement Tax and Withdrawal Model](retirement-tax-and-withdrawal-model.md)). If Guardrails or % of corpus is selected, each cohort resolves its own cut/raise/hold state, or its own corpus-linked target, from that cohort's own sequence of returns — the guardrail history for one starting fiscal year can differ from another even under the same rule. Turning on Historical rate additionally replaces the flat assumed inflation with each cohort's own year-by-year inflation history.
+
 ## Revision History
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 1.1.0 | 2 | 2026-07-06 | Added the Historical Backtest Lab section (cohort concept, comparison with Monte Carlo, dataset provenance and caveats) and its interaction with dynamic withdrawal rules (v2.0.0). |
 | 1.0.0 | 1 | 2026-05-15 | Added explanation for risk paths, End Target Chance, fat-tail sampling, and heatmap colour meaning. |

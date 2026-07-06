@@ -1,12 +1,12 @@
 ---
 title: "Tune a Retirement Plan"
 created: 2026-05-12
-updated: 2026-05-16
+updated: 2026-07-06
 type: project/user-doc
 status: published
-version: "2.1.0"
-revision: 5
-last_updated: 2026-05-16
+version: "2.2.0"
+revision: 6
+last_updated: 2026-07-06
 tags: [user-docs, how-to, retirement-planning]
 project: fin-dashboard
 owners: [msambare]
@@ -116,10 +116,19 @@ Change one lever at a time:
 
 Save a snapshot after each meaningful version.
 
+## 10. Tune The Withdrawal Rule
+
+Open Assumption Studio, then Risk & Goals, to change how the yearly cash need is resolved. Fixed (the default) keeps today's inflation-indexed target unchanged — no cuts, no raises, no corpus-linked recompute. Guardrails cuts spending when the withdrawal rate drifts too far above the rate the plan started with, raises it when it drifts too far below, and otherwise holds a year's inflation increase flat after a market loss. % of corpus recomputes the target as a fixed percentage of that year's opening corpus every year, with no inflation escalation. Set a spending floor if either dynamic rule should never push the cash need below a minimum. Read the Withdrawal Rule line in the insights rail after switching rules — it shows the latest cut/raise/hold state alongside End Target Chance.
+
+## 11. Tune Planned Lump-Sum Goals
+
+Switch on Use household plan, then open the household tab's Planned lump-sum goals editor to add up to 10 named one-time cash needs — a car, a wedding, a renovation — each with its own amount in today's rupees, landing year, and optional inflation indexing. Goals are added on top of the recurring cash need only in their own year; they are never scaled together or by a Guardrails cut/raise. If you tuned a single planned lump sum before this release, it now shows as one entry in this editor — no action is needed, existing plans migrate automatically.
+
 ## Revision History
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 2.2.0 | 6 | 2026-07-06 | Added withdrawal-rule tuning guidance (Fixed/Guardrails/% of corpus) and the multi-goal planned lump-sum editor workflow for v2.0.0. |
 | 2.1.0 | 5 | 2026-05-16 | Added the monthly-cash mode rule so users know when the value drives withdrawals versus acts as a benchmark. |
 | 2.0.0 | 4 | 2026-05-15 | Rebuilt tuning guide into a step-by-step workflow spanning baseline, core inputs, returns, tax, household planning, stress testing, and exports. |
 | 1.2.0 | 3 | 2026-05-14 | Added retiree guided tuning, Trust Center review, Scenario Library comparison, and Adviser / CA Pack handoff guidance. |
