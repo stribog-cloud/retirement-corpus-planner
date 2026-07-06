@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-06
+
+Second feature-milestone release. Every change is additive and
+backward-compatible — saved plans migrate automatically and default-state
+projections stay byte-identical to v1.0.0 — which by strict Semantic
+Versioning alone would be a minor bump; v2.0.0 is a deliberate
+feature-milestone major version marking the first substantial capability
+expansion since the initial public release.
+
 ### Added
 
 - Opt-in tax-aware rebalancing (fin-8fb F5): a new `rebalanceTaxAware`
@@ -171,6 +180,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previously-dropped STCL is now correctly available to offset a future
   STCG. See `docs/developer/model-contract.md` §3.1.
 
+- **The built app crashed on mount with a `mobileInsightsRef is not
+  defined` ReferenceError** (fin-8fb.11 BLOCKER). The mobile-insights-sheet
+  focus wiring declared its ref in `DashboardPages` but the sheet renders
+  in `DashboardShell`; every jsdom unit test missed it because none mount
+  the full `<App/>`. The ref moved to the correct scope, and a new
+  `tests/app-mount-smoke.test.jsx` drives the module's auto-mount so this
+  class of render-time scope error fails fast in the unit suite.
+
 - **Guardrails withdrawal rule ratcheted a "raise" forever on a fully
   depleted ($0) portfolio** (fin-8fb.11 BLOCKER-B). `resolveDynamicSpending`
   fell back to `currentRate = 0` when `openingCorpus` was `0`, which always
@@ -197,6 +214,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any real ruleset (`DEFAULT_TAX_LAW`'s largest array is 7 entries) and do
   not change behavior for a legitimate tax-law edit. See
   `docs/developer/model-contract.md` §3.3.
+
+- **CSV exports were vulnerable to spreadsheet formula injection**
+  (fin-8fb.11 MAJOR, CWE-1236). `csvCell` performed only RFC-4180 delimiter
+  escaping, so a cell beginning with `=`, `+`, `-`, `@`, TAB, or CR — for
+  example a planned-goal name or a tax-law text field — would execute as a
+  formula/DDE payload when the exported CSV was opened in Excel, Google
+  Sheets, or LibreOffice. `csvCell` now prefixes such cells with a single
+  quote while leaving genuine negative numbers untouched, closing every
+  sheet's injection surface.
+
+- **Scenario import had no size guard**; `importScenarioSnapshot` now
+  rejects files larger than 2 MB before parsing.
+
+- **Zero-network verification hardened** (fin-8fb.11, defense-in-depth).
+  `scripts/network-gate.mjs` now also flags remote dynamic `import()`,
+  `RTCPeerConnection`, element `.src`/`.href` assignment to external URLs,
+  and external `@import`/`url()` in CSS, and documents that the
+  request-interception e2e (`tests/e2e/offline-load.mjs`) is the runtime
+  backstop for obfuscated egress. `offline-load.mjs` now exercises CSV and
+  PDF export under request interception, asserting zero network attempts.
 
 ## [1.0.0] - 2026-05-25
 
@@ -227,5 +264,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no analytics beacon, no backend sync).
 - MIT licensed; see `LICENSE` for full copyright and permission notice.
 
-[Unreleased]: https://github.com/stribog-cloud/retirement-corpus-planner/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/stribog-cloud/retirement-corpus-planner/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/stribog-cloud/retirement-corpus-planner/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/stribog-cloud/retirement-corpus-planner/releases/tag/v1.0.0

@@ -171,4 +171,4 @@ See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ---
 
-*Retirement Corpus & Income Planner · Planning tool · not financial/tax advice · v1.0.0 · MIT · https://github.com/stribog-cloud/retirement-corpus-planner*
+*Retirement Corpus & Income Planner · Planning tool · not financial/tax advice · v2.0.0 · MIT · https://github.com/stribog-cloud/retirement-corpus-planner*

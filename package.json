@@ -1,6 +1,6 @@
 {
   "name": "fin-dashboard",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Offline-first single-file Indian retirement corpus and income planning tool. FA-2025 / AY 2026-27 tax baseline, Monte Carlo sequence-of-returns simulation, FIFO SWP with capital gains accounting, joint-life household modelling, and Adviser/CA Pack export.",
   "keywords": [
     "retirement",
