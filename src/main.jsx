@@ -6580,7 +6580,7 @@ function DashboardPages() {
                     </div>
                     <button type="button" onClick={() => setPinnedStrategyId("")} disabled={!pinnedStrategy}>Clear pin</button>
                   </div>
-                  <div className="table-wrap compact">
+                  <div className="table-wrap compact" tabIndex={0} role="group" aria-label="Strategy comparison table, scrollable">
                     <table>
                       <thead><tr><th>Strategy</th><th>Role</th><th>Score</th><th>Equity</th><th>Defence</th><th>Cash Years</th><th>Tax Drag</th><th>Action</th></tr></thead>
                       <tbody>
@@ -6847,7 +6847,7 @@ function DashboardPages() {
                   <MiniMetric label="Special Rates" value={`${formatPct(activeTaxLaw.specialRates.equityLtcg)} LTCG / ${formatPct(activeTaxLaw.specialRates.equityStcg)} STCG`} />
                   <MiniMetric label="87A New Regime" value={`${formatInr(activeTaxLaw.rebates.new.threshold)} cap`} />
                 </div>
-                <div className="table-wrap">
+                <div className="table-wrap" tabIndex={0} role="group" aria-label="Instrument tax treatment table, scrollable">
                   <table>
                     <thead><tr><th>Bucket</th><th>Instrument</th><th>Product Facts</th><th>Return</th><th>Tax Rule</th><th>Year-1 Tax</th></tr></thead>
                     <tbody>
@@ -6925,7 +6925,7 @@ function DashboardPages() {
                 <PanelHead eyebrow="Scenario Lens" title="Active Plan vs Alternatives" note="Compare income, growth, and stress paths over the same Indian inflation assumption." />
                 <div className="scenario-layout">
                   <EChart option={scenarioOption} />
-                  <div className="table-wrap compact">
+                  <div className="table-wrap compact" tabIndex={0} role="group" aria-label="Scenario comparison table, scrollable">
                     <table>
                       <thead><tr><th>Scenario</th><th>Final</th><th>Real</th><th>Cash</th></tr></thead>
                       <tbody>
@@ -7050,7 +7050,7 @@ function DashboardPages() {
                   <button type="button" className={activeTableMode === "full" ? "active" : ""} onClick={() => setTableMode("full")}>Full</button>
                   <button type="button" className={activeTableMode === "monthly" ? "active" : ""} disabled={!monthlyAuditRows.length} onClick={() => setTableMode("monthly")}>Monthly FIFO</button>
                 </div>
-                <div className="table-wrap schedule">
+                <div className="table-wrap schedule" tabIndex={0} role="group" aria-label="Projection schedule table, scrollable">
                   <table>
                     <thead><tr>{visibleLedgerColumns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead>
                     <tbody>
