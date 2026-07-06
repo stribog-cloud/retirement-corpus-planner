@@ -105,6 +105,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   IDCW under a dynamic rule, and the coverage-semantics note (`cashCoverage`
   is measured against the resolved, not original, target).
 
+- Adviser-pack exports now surface the full v2.0 model surface (fin-8fb.9) —
+  previously CSV and PDF spoke only to the pre-v2 model, so plans using any
+  of the F2-F5 features exported incomplete evidence. `yearly.csv` gains four
+  additive columns, `spending_multiplier`, `guardrail_action`,
+  `rebalance_gross_inr`, `rebalance_tax_inr`, populated straight from the
+  matching yearly-row fields (`rebalance_*` render empty outside
+  `calculateSwpPlan`, matching F5's SWP-only scope). `metadata.csv` gains
+  `withdrawal_rule` (always) plus only the params relevant to the active
+  rule (`guardrail_band_pct`/`guardrail_adjust_pct` or
+  `percent_of_corpus_rate_pct`, plus `spending_floor_monthly_inr` for either
+  dynamic rule), `rebalance_tax_aware`, `backtest_enabled`,
+  `backtest_use_historical_inflation`, and one-line-per-goal
+  `goal_N_name`/`goal_N_amount_inr`/`goal_N_year`/`goal_N_inflation_indexed`
+  rows behind a `goals_count` header — the goals listing is new surface
+  entirely, since exports previously rendered no household/lump-sum fields
+  at all. A new conditional 7th CSV sheet, `backtest.csv`, ships the full
+  Historical Backtest Lab cohort replay (dataset id/window, cohort count,
+  success rate, worst/best cohort, and one row per cohort) whenever
+  `backtestEnabled === 1` and the replay is non-empty; the CSV re-runs
+  `calculateHistoricalBacktest` against the live export params, mirroring
+  how the scenario sheet already re-runs Monte Carlo per scenario. The PDF
+  report gains a compact "Dynamic spending" note on §3 Plan Diagnosis when
+  guardrails are active (latest year's resolved action + multiplier), a new
+  "Historical Backtest Lab" sub-section on §5 Scenarios (success-rate
+  sentence, worst/best cohort lines, and a cohort autotable — no chart is
+  rendered, the table is the fully accessible rendering), and a new §7
+  Methodology assumptions sub-page (dynamic withdrawal rule + tax-aware
+  rebalancing flag, plus a one-line-per-goal "Planned goals" table). See
+  `docs/developer/export-pipeline.md` for the updated sheet/section
+  inventory and `docs/developer/model-contract.md` §3.2/§4.1/§4.2/§5.1 for
+  the underlying model contracts.
+
 ### Changed
 
 - §74 capital-loss carry-forward is now live across projection years in

@@ -61,6 +61,11 @@ const {
   TILE_MOOD_COLOURS,
   // R4.9.5j fin-vkv — absolute-URL classifier
   isAbsoluteUrl,
+  // fin-8fb.9 — v2 exports pure helpers
+  buildDynamicSpendingNote,
+  buildDynamicAssumptionRows,
+  buildGoalRows,
+  buildBacktestNarrative,
 } = __test__;
 
 describe("R4.9.5g pdf-report pure helpers — formatMoneyForPdf", () => {
@@ -1439,5 +1444,176 @@ describe("R4.9.5j fin-vkv — parseInlineRuns link property (clickable annotatio
     expect(runs).toHaveLength(1);
     expect(runs[0].link).toBe("https://www.sebi.gov.in/sebiweb/other/OtherAction.do?doRecognisedFpi=yes&intmId=13");
     expect(runs[0].text).toBe("https://www.sebi.gov.in/sebiweb/other/OtherAction.do?doRecognisedFpi=yes&intmId=13");
+  });
+});
+
+// ── fin-8fb.9 — v2 exports pure helpers ──────────────────────────────────────
+
+describe("fin-8fb.9 pdf-report pure helpers — buildDynamicSpendingNote", () => {
+  it("returns null for the fixed rule", () => {
+    expect(buildDynamicSpendingNote({ withdrawalRule: "fixed", finalRow: { spendingMultiplier: 1, guardrailAction: "none" } })).toBeNull();
+  });
+
+  it("returns null for the percentOfCorpus rule (no multiplier/action concept)", () => {
+    expect(buildDynamicSpendingNote({ withdrawalRule: "percentOfCorpus", finalRow: {} })).toBeNull();
+  });
+
+  it("returns null when withdrawalRule is undefined (defensive default)", () => {
+    expect(buildDynamicSpendingNote({})).toBeNull();
+  });
+
+  it("renders the guardrails action + multiplier from the final row", () => {
+    const note = buildDynamicSpendingNote({
+      withdrawalRule: "guardrails",
+      finalRow: { spendingMultiplier: 0.9, guardrailAction: "cut" },
+    });
+    expect(note).toBe('Dynamic spending: Guardrails rule active — latest projection year action "cut", spending multiplier 0.90x.');
+  });
+
+  it("falls back to multiplier=1/action=none when the final row is missing those fields", () => {
+    const note = buildDynamicSpendingNote({ withdrawalRule: "guardrails", finalRow: {} });
+    expect(note).toBe('Dynamic spending: Guardrails rule active — latest projection year action "none", spending multiplier 1.00x.');
+  });
+});
+
+describe("fin-8fb.9 pdf-report pure helpers — buildDynamicAssumptionRows", () => {
+  it("fixed rule (default/absent) emits only the rule + rebalancing rows", () => {
+    expect(buildDynamicAssumptionRows({ state: {} })).toEqual([
+      ["Withdrawal rule", "Fixed — recurring cash escalates with assumed inflation only"],
+      ["Tax-aware rebalancing", "Off (default) — in-kind transfer, no gain/loss realized"],
+    ]);
+  });
+
+  it("guardrails rule emits band/adjust params + spending floor, not percentOfCorpus's", () => {
+    const rows = buildDynamicAssumptionRows({
+      state: { withdrawalRule: "guardrails", guardrailBandPct: 15, guardrailAdjustPct: 8, spendingFloorMonthly: 25000 },
+    });
+    expect(rows[0]).toEqual(["Withdrawal rule", "Guardrails — band 15% / adjust 8%"]);
+    expect(rows[1][0]).toBe("Spending floor");
+    expect(rows[1][1]).toContain("25,000");
+    expect(rows.some((r) => r[0] === "Withdrawal rule" && r[1].includes("% of corpus"))).toBe(false);
+  });
+
+  it("percentOfCorpus rule emits its own rate + spending floor, not guardrails' band/adjust", () => {
+    const rows = buildDynamicAssumptionRows({
+      state: { withdrawalRule: "percentOfCorpus", percentOfCorpusRate: 4, spendingFloorMonthly: 30000 },
+    });
+    expect(rows[0]).toEqual(["Withdrawal rule", "4% of corpus, recalculated every year"]);
+    expect(rows[1][0]).toBe("Spending floor");
+    expect(rows[1][1]).toContain("30,000");
+    expect(rows.some((r) => r[1].includes("band"))).toBe(false);
+  });
+
+  it("rebalanceTaxAware=1 reports the on-state; default/0 reports off", () => {
+    const on = buildDynamicAssumptionRows({ state: { rebalanceTaxAware: 1 } });
+    const off = buildDynamicAssumptionRows({ state: { rebalanceTaxAware: 0 } });
+    expect(on.find((r) => r[0] === "Tax-aware rebalancing")[1]).toMatch(/^On —/);
+    expect(off.find((r) => r[0] === "Tax-aware rebalancing")[1]).toMatch(/^Off \(default\) —/);
+  });
+
+  it("guardrails band/adjust/floor at exactly 0 are genuine values, not missing-field fallbacks", () => {
+    const rows = buildDynamicAssumptionRows({
+      state: { withdrawalRule: "guardrails", guardrailBandPct: 0, guardrailAdjustPct: 0, spendingFloorMonthly: 0 },
+    });
+    expect(rows[0]).toEqual(["Withdrawal rule", "Guardrails — band 0% / adjust 0%"]);
+    expect(rows[1][1]).toContain("INR 0");
+  });
+
+  it("percentOfCorpus rate/floor at exactly 0 are genuine values, not missing-field fallbacks", () => {
+    const rows = buildDynamicAssumptionRows({
+      state: { withdrawalRule: "percentOfCorpus", percentOfCorpusRate: 0, spendingFloorMonthly: 0 },
+    });
+    expect(rows[0]).toEqual(["Withdrawal rule", "0% of corpus, recalculated every year"]);
+    expect(rows[1][1]).toContain("INR 0");
+  });
+});
+
+describe("fin-8fb.9 pdf-report pure helpers — buildGoalRows", () => {
+  it("returns an empty array for no goals / non-array input", () => {
+    expect(buildGoalRows([])).toEqual([]);
+    expect(buildGoalRows(null)).toEqual([]);
+    expect(buildGoalRows(undefined)).toEqual([]);
+  });
+
+  it("renders one row per goal with formatted amount/year/inflation columns", () => {
+    const rows = buildGoalRows([
+      { name: "Kid's college", amount: 2500000, year: 9, inflate: 1 },
+      { name: "Car replacement", amount: 800000, year: 3, inflate: 0 },
+    ]);
+    expect(rows).toEqual([
+      ["Kid's college", "INR 25.0 L", "Year 9", "Yes"],
+      ["Car replacement", "INR 8.00 L", "Year 3", "No"],
+    ]);
+  });
+
+  it("falls back to '(unnamed goal)' when name is missing/empty", () => {
+    const rows = buildGoalRows([{ amount: 100000, year: 2, inflate: 0 }]);
+    expect(rows[0][0]).toBe("(unnamed goal)");
+  });
+
+  it("renders '0' amount/year when a goal has no amount/year fields at all", () => {
+    const rows = buildGoalRows([{ name: "Bare goal" }]);
+    expect(rows[0]).toEqual(["Bare goal", "INR 0", "Year 0", "No"]);
+  });
+});
+
+describe("fin-8fb.9 pdf-report pure helpers — buildBacktestNarrative", () => {
+  const datasetMeta = { id: "india-fy-annual-v1", firstFy: "1990-91", lastFy: "2024-25", count: 35 };
+
+  it("returns null when cohortCount is 0 or missing", () => {
+    expect(buildBacktestNarrative({ result: { cohortCount: 0 }, datasetMeta })).toBeNull();
+    expect(buildBacktestNarrative({ result: null, datasetMeta })).toBeNull();
+    expect(buildBacktestNarrative({})).toBeNull();
+  });
+
+  it("builds the success/worst/best/disclaimer lines from a known result", () => {
+    const result = {
+      cohortCount: 6,
+      horizon: 30,
+      successRate: 0.8333333,
+      worst: { startFy: "1992-93", endingCorpus: 12345678, depletionYear: 12 },
+      best: { startFy: "1990-91", endingCorpus: 98765432, depletionYear: null },
+    };
+    const narrative = buildBacktestNarrative({ result, datasetMeta });
+    expect(narrative.successLine).toBe(
+      "6 rolling 30-year windows tested across FY 1990-91 to FY 2024-25 — 85% of cohorts met the corpus target."
+    );
+    expect(narrative.worstLine).toBe(
+      "Worst cohort: started FY 1992-93, ending corpus INR 1.23 Cr (depleted in year 12)."
+    );
+    expect(narrative.bestLine).toBe(
+      "Best cohort: started FY 1990-91, ending corpus INR 9.88 Cr."
+    );
+    expect(narrative.disclaimerLine).toBe(
+      "Approximate index-level history; not audited returns. 35 years of bundled India FY data replayed through the exact same cash engine as the live projection — a planning sensitivity against real historical sequences, not a market forecast."
+    );
+  });
+
+  it("reports 'never depleted' for a worst cohort with no depletionYear", () => {
+    const result = {
+      cohortCount: 3, horizon: 10, successRate: 1,
+      worst: { startFy: "2000-01", endingCorpus: 5000000, depletionYear: null },
+      best: { startFy: "2001-02", endingCorpus: 6000000, depletionYear: null },
+    };
+    const narrative = buildBacktestNarrative({ result, datasetMeta });
+    expect(narrative.worstLine).toContain("never depleted");
+  });
+
+  it("degrades gracefully when worst/best are null (defensive — not expected once cohortCount>0)", () => {
+    const result = { cohortCount: 1, horizon: 5, successRate: 0, worst: null, best: null };
+    const narrative = buildBacktestNarrative({ result, datasetMeta: {} });
+    expect(narrative.worstLine).toBe("Worst cohort: not available.");
+    expect(narrative.bestLine).toBe("Best cohort: not available.");
+  });
+
+  it("degrades gracefully when datasetMeta is omitted entirely", () => {
+    const result = {
+      cohortCount: 2, horizon: 5, successRate: 1,
+      worst: { startFy: "2000-01", endingCorpus: 1000000, depletionYear: null },
+      best: { startFy: "2001-02", endingCorpus: 2000000, depletionYear: null },
+    };
+    const narrative = buildBacktestNarrative({ result });
+    expect(narrative.successLine).toContain("FY ? to FY ?");
+    expect(narrative.disclaimerLine).toContain("2 years of bundled India FY data");
   });
 });

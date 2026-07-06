@@ -22,6 +22,20 @@
  *   §6 Month-by-month cash flow ledger  — renderMonthlyLedger
  *   §7 Methodology + Disclaimer          — renderMethodology
  *
+ * fin-8fb.9 (v2.0 exports) additions — see docs/developer/model-contract.md
+ * §3.2/§4.1/§4.2/§5.1 for the underlying model surface:
+ *   §3 gains a compact "Dynamic spending" note when guardrails are active
+ *     (buildDynamicSpendingNote), quoting the final year's resolved action.
+ *   §5 gains a "Historical Backtest Lab" sub-section (buildBacktestNarrative +
+ *     a cohort autotable) when state.backtestEnabled===1 and the cohort
+ *     replay is non-empty — recomputed live from reportParams since
+ *     src/main.jsx's exportContext does not yet carry a precomputed
+ *     reportBacktest (UI wiring is out of scope here, per model-contract §5.1).
+ *   §7 gains a dynamic-withdrawal/rebalancing assumptions table
+ *     (buildDynamicAssumptionRows) and a one-line-per-goal "Planned goals"
+ *     table (buildGoalRows) — the latter a NEW surface, exports previously
+ *     rendered no household/lump-sum fields at all.
+ *
  * Theme: LIGHT ONLY. No dark variant. No toggle. Palette mirrors the
  * `:root` block in `src/styles.css:1-45`. No new design tokens introduced.
  *
@@ -52,9 +66,11 @@ import {
   targetAnnualCashForYear,
   quantile,
   buildMonthlyLedger,
+  calculateHistoricalBacktest,
 } from "../model.js";
 import { formatProbabilityForDisplay } from "../probability-display.js";
 import { PLANNING_VERSION } from "../planning.js";
+import { DATASET_META } from "../data/india-annual-returns.js";
 
 /**
  * App build version injected at compile time by Vite's `define` plugin (fin-i65).
@@ -582,6 +598,92 @@ function formatMoneyForPdf(value) {
   return formatInr(value).replace("₹", "INR ");
 }
 const money = formatMoneyForPdf;
+
+/**
+ * fin-8fb.9 — §3 Plan Diagnosis "Dynamic spending" note. Compact one-line
+ * summary of the active withdrawal rule when guardrails are active, quoting
+ * the final projection year's resolved action + spending multiplier (both
+ * additive ledger fields — docs/developer/model-contract.md §4.1). Returns
+ * null for "fixed"/"percentOfCorpus" — nothing to call out there (fixed has
+ * no rule-driven adjustment; percentOfCorpus has no multiplier/action concept,
+ * it is fully covered by the §7 assumptions table instead). Pure — no jsPDF.
+ */
+function buildDynamicSpendingNote({ withdrawalRule, finalRow = {} } = {}) {
+  if (withdrawalRule !== "guardrails") return null;
+  const multiplier = Number.isFinite(Number(finalRow.spendingMultiplier)) ? Number(finalRow.spendingMultiplier) : 1;
+  const action = finalRow.guardrailAction || "none";
+  return `Dynamic spending: Guardrails rule active — latest projection year action "${action}", spending multiplier ${multiplier.toFixed(2)}x.`;
+}
+
+/**
+ * fin-8fb.9 — §7 methodology "assumptions" facts: active withdrawal rule +
+ * only the params relevant to it, and the tax-aware rebalancing flag. Mirrors
+ * the CSV metadata sheet's "only emit params relevant to the active rule"
+ * convention (src/exports/csv.js buildMetadataCsv) so the two exports never
+ * disagree about which params apply. Pure — no jsPDF.
+ */
+function buildDynamicAssumptionRows({ state: s = {} } = {}) {
+  const rule = String(s.withdrawalRule || "fixed");
+  const rows = [];
+  if (rule === "guardrails") {
+    rows.push(["Withdrawal rule", `Guardrails — band ${Number(s.guardrailBandPct) || 0}% / adjust ${Number(s.guardrailAdjustPct) || 0}%`]);
+    rows.push(["Spending floor", `${money(Number(s.spendingFloorMonthly) || 0)} / month`]);
+  } else if (rule === "percentOfCorpus") {
+    rows.push(["Withdrawal rule", `${Number(s.percentOfCorpusRate) || 0}% of corpus, recalculated every year`]);
+    rows.push(["Spending floor", `${money(Number(s.spendingFloorMonthly) || 0)} / month`]);
+  } else {
+    rows.push(["Withdrawal rule", "Fixed — recurring cash escalates with assumed inflation only"]);
+  }
+  rows.push(["Tax-aware rebalancing", Number(s.rebalanceTaxAware) === 1
+    ? "On — rebalance sale leg realizes real capital-gains tax"
+    : "Off (default) — in-kind transfer, no gain/loss realized"]);
+  return rows;
+}
+
+/**
+ * fin-8fb.9 — §7 "Planned goals" one-line-per-goal table body. NEW surface:
+ * exports previously rendered no household/lump-sum fields at all (fin-8fb F3
+ * finding). Only ever non-empty when useHouseholdPlan is on (see
+ * householdPlanProfile / docs/developer/model-contract.md §4.2 scoping) — the
+ * caller is responsible for that gate; this helper just renders what it's given.
+ * Pure — no jsPDF.
+ */
+function buildGoalRows(goals) {
+  return (Array.isArray(goals) ? goals : []).map((g) => [
+    g.name || "(unnamed goal)",
+    money(Number(g.amount) || 0),
+    `Year ${Math.round(Number(g.year) || 0)}`,
+    Number(g.inflate) === 1 ? "Yes" : "No",
+  ]);
+}
+
+/**
+ * fin-8fb.9 — §5 Historical Backtest Lab narrative. Success-rate sentence
+ * reuses formatProbabilityForDisplay (the same rounding convention the §2
+ * Plan Endurance / Target Confidence tiles use — R4-Q10), so the backtest
+ * number reads consistently with the Monte Carlo figures elsewhere in the
+ * report. Worst/best cohort lines and the planning-grade disclaimer line
+ * mirror the live app's Historical Backtest Lab card copy verbatim
+ * (src/main.jsx HistoricalBacktestLab / backtest-disclosure block) so the PDF
+ * and the live UI never disagree. Returns null when there is nothing to
+ * report (no cohorts — e.g. the horizon exceeds the bundled dataset). Pure —
+ * no jsPDF.
+ */
+function buildBacktestNarrative({ result, datasetMeta } = {}) {
+  const r = result || {};
+  if (!(Number(r.cohortCount) > 0)) return null;
+  const successDisplay = formatProbabilityForDisplay(r.successRate);
+  const dm = datasetMeta || {};
+  const successLine = `${r.cohortCount} rolling ${r.horizon}-year windows tested across FY ${dm.firstFy || "?"} to FY ${dm.lastFy || "?"} — ${successDisplay.primary} of cohorts met the corpus target.`;
+  const worstLine = r.worst
+    ? `Worst cohort: started FY ${r.worst.startFy}, ending corpus ${money(r.worst.endingCorpus)}${r.worst.depletionYear ? ` (depleted in year ${r.worst.depletionYear})` : " (never depleted)"}.`
+    : "Worst cohort: not available.";
+  const bestLine = r.best
+    ? `Best cohort: started FY ${r.best.startFy}, ending corpus ${money(r.best.endingCorpus)}.`
+    : "Best cohort: not available.";
+  const disclaimerLine = `Approximate index-level history; not audited returns. ${dm.count || r.cohortCount} years of bundled India FY data replayed through the exact same cash engine as the live projection — a planning sensitivity against real historical sequences, not a market forecast.`;
+  return { successLine, worstLine, bestLine, disclaimerLine };
+}
 
 /**
  * R4.9.5h Pass-2 Dispatch 3 — D24 fix.
@@ -1502,6 +1604,23 @@ export async function renderPlanDiagnosis(doc, exportContext) {
     styles: _AT_STY(10),
     columnStyles: { 0: { cellWidth: 280 } },
   });
+
+  // fin-8fb.9 — compact "Dynamic spending" note when guardrails are active,
+  // quoting the final projection year's resolved action + multiplier. Delegated
+  // to the pure `buildDynamicSpendingNote` helper (honest Vitest unit testing).
+  // model.rows is always an array by construction — see this function's own
+  // `model = exportContext?.reportModel || { final: {}, rows: [] }` fallback above.
+  const modelRows = model.rows;
+  const dynamicNote = buildDynamicSpendingNote({
+    withdrawalRule: String(state.withdrawalRule || "fixed"),
+    finalRow: modelRows.length > 0 ? modelRows[modelRows.length - 1] : {},
+  });
+  if (dynamicNote) {
+    const noteY = ((doc.lastAutoTable || {}).finalY || PAGE.headingY + 200) + 20;
+    const [dnR, dnG, dnB] = hexToRgb(LIGHT_PALETTE.muted);
+    _sB(doc, "italic", 8.5, dnR, dnG, dnB);
+    doc.text(sanitizeForPdf(dynamicNote), PAGE.marginLeft, noteY, { maxWidth: IW });
+  }
 }
 
 /**
@@ -1675,6 +1794,72 @@ export async function renderScenarios(doc, exportContext) {
     "Strong (corpus > real target, cash >= target) · Watch (85-99%) · Gap (below).",
     "Depleted = 'Plan depleted at year N' where N is first close-to-zero annual row.",
   ].forEach((ln,i)=>doc.text(ln,PAGE.marginLeft,summaryY+i*14,{maxWidth:IW}));
+
+  // fin-8fb.9 — Historical Backtest Lab sub-section (fin-8fb F4), rendered
+  // only when enabled and the cohort replay is non-empty. exportContext does
+  // not yet carry a precomputed reportBacktest (src/main.jsx's buildExportContext
+  // was deliberately not touched by this change — see docs/developer/model-contract.md
+  // §5.1 "UI phase 2, not implemented here"), so this recomputes live from
+  // reportParams, the same "call it yourself" pattern renderDecisionSummary
+  // already uses for solveTopup(params) above. A future exportContext.reportBacktest
+  // is preferred when present.
+  const state = exportContext?.reportState || {};
+  const params = exportContext?.reportParams || {};
+  let backtestResult = exportContext?.reportBacktest || null;
+  if (!backtestResult && Number(state.backtestEnabled) === 1) {
+    try {
+      backtestResult = calculateHistoricalBacktest(params);
+    } catch {
+      backtestResult = null;
+    }
+  }
+  const backtestNarrative = buildBacktestNarrative({ result: backtestResult, datasetMeta: DATASET_META });
+  if (backtestNarrative) {
+    _newPage(doc);
+    drawSectionHeading(doc, section);
+    drawH2Heading(doc, "HISTORICAL BACKTEST LAB", PAGE.marginLeft, PAGE.headingY + 20);
+    _sB(doc, _NRM, 9, tR, tG, tB);
+    let btY = PAGE.headingY + 40;
+    [backtestNarrative.successLine, backtestNarrative.worstLine, backtestNarrative.bestLine].forEach((ln, i) => {
+      doc.text(sanitizeForPdf(ln), PAGE.marginLeft, btY + i * 16, { maxWidth: IW });
+    });
+    btY += 3 * 16 + 8;
+    _sB(doc, "italic", 8, mR, mG, mB);
+    doc.text(sanitizeForPdf(backtestNarrative.disclaimerLine), PAGE.marginLeft, btY, { maxWidth: IW });
+    btY += 22;
+
+    // Cohort autotable IS the accessible rendering for this sub-section — no
+    // chart is drawn (export-pipeline.md §6: sibling data tables are the
+    // text-extractable equivalent; here there is no rasterised visual to
+    // mirror in the first place, so the table below is the only rendering).
+    // Defensive Array.isArray guard: unlike model.rows (fully internal),
+    // backtestResult may be an external exportContext.reportBacktest object
+    // of unknown shape (a future main.jsx wiring point — see the "prefers a
+    // precomputed reportBacktest" test), so this does not assume its shape.
+    const allCohorts = Array.isArray(backtestResult.cohorts) ? backtestResult.cohorts : [];
+    const cohortCap = 35;
+    // calculateHistoricalBacktest guarantees depletionYear != null whenever
+    // depleted is true (docs/developer/model-contract.md §5.1 "Success
+    // definition"), so there is no "depleted with no year" case to branch on.
+    const cohortRows = allCohorts.slice(0, cohortCap).map((c) => [
+      c.startFy,
+      money(c.endingCorpus),
+      money(c.realEndingCorpus),
+      c.depleted ? `Yes (yr ${c.depletionYear})` : "No",
+    ]);
+    _atDef(doc, {
+      head: [["Cohort start (FY)", "Ending corpus (nominal)", "Ending corpus (real, today's rupees)", "Depleted"]],
+      body: cohortRows,
+      startY: btY,
+      styles: _AT_STY(8, 1),
+    });
+    const capLine = allCohorts.length > cohortCap
+      ? `Showing the first ${cohortCap} of ${allCohorts.length} cohorts (oldest-starting first).`
+      : "No chart is rendered for this sub-section — the cohort table above is the complete, directly accessible data.";
+    const capY = ((doc.lastAutoTable || {}).finalY || btY) + 14;
+    _sB(doc, _NRM, 8, mR, mG, mB);
+    doc.text(capLine, PAGE.marginLeft, capY, { maxWidth: IW });
+  }
 }
 
 /* === §6 — month-by-month cash flow ledger ================================ */
@@ -1966,6 +2151,47 @@ export async function renderMethodology(doc, exportContext) {
       maxWidth: discMaxWidth,
     });
   });
+
+  // ── fin-8fb.9 — Dynamic spending / rebalancing assumptions + planned goals ──
+  // A dedicated sub-page (rather than packing onto the facts-table page above)
+  // keeps layout safe regardless of how many goals are configured (up to 10 —
+  // see sanitizePlannedLumpSums) without needing bespoke overflow math here.
+  _newPage(doc);
+  drawSectionHeading(doc, section);
+  const assumptionState = exportContext?.reportState || {};
+  const household = exportContext?.reportHousehold || {};
+
+  txt("normal", 10, mR, mG, mB);
+  doc.text("Dynamic withdrawal rule, tax-aware rebalancing, and planned goals — the v2 assumption surface.",
+    PAGE.marginLeft, PAGE.headingY + 28, { maxWidth: discMaxWidth });
+
+  // Assumption rows delegated to the pure `buildDynamicAssumptionRows` helper
+  // (mirrors the CSV metadata sheet's "only emit params relevant to the
+  // active rule" convention — src/exports/csv.js buildMetadataCsv).
+  const assumptionRows = buildDynamicAssumptionRows({ state: assumptionState });
+  _atDef(doc, {
+    head: [["Setting", "Value"]],
+    body: assumptionRows,
+    startY: PAGE.headingY + 50,
+    styles: { ..._AT_STY(9, 1), cellPadding: { vertical: 4, horizontal: 5 } },
+    columnStyles: { 0: { cellWidth: 160, fontStyle: _BLD } },
+  });
+
+  // Planned goals — NEW surface (fin-8fb F3 finding: exports previously
+  // rendered no household/lump-sum fields at all). Only ever non-empty under
+  // useHouseholdPlan (householdPlanProfile scoping); omit the table entirely
+  // rather than show an empty one when there are no goals.
+  const goals = Array.isArray(household.plannedLumpSums) ? household.plannedLumpSums : [];
+  if (goals.length > 0) {
+    const goalsY = ((doc.lastAutoTable || {}).finalY || PAGE.headingY + 200) + 20;
+    drawH2Heading(doc, "PLANNED GOALS (HOUSEHOLD MODE)", PAGE.marginLeft, goalsY);
+    _atDef(doc, {
+      head: [["Goal", "Amount", "Target year", "Inflation-indexed"]],
+      body: buildGoalRows(goals),
+      startY: goalsY + 16,
+      styles: _AT_STY(9, 1),
+    });
+  }
 
   // ── Full disclaimer page(s) ─────────────────────────────────────────────
   _newPage(doc);
@@ -2495,4 +2721,9 @@ export const __test__ = Object.freeze({
   renderAccessibilityAppendix,
   // R4.9.5h Pass-2 Dispatch 5 — D25 MC-pending placeholder (defense-in-depth).
   renderMcPendingPlaceholder,
+  // fin-8fb.9 — v2 exports: guardrail note, assumption/goal rows, backtest narrative.
+  buildDynamicSpendingNote,
+  buildDynamicAssumptionRows,
+  buildGoalRows,
+  buildBacktestNarrative,
 });

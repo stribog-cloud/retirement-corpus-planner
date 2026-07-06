@@ -70,7 +70,7 @@ Phone evidence is captured separately because the mobile experience is not a com
 | Tax-law JSON | Tax rule audit | Active ruleset, source metadata, slab/special-rate rules, version |
 | Adviser / CA Pack JSON | Professional review | Caveats, assumptions, tax-law JSON, scenario comparison, saved scenarios, risk summary, CSV text |
 
-CSV and PDF exports already reflect the live plan's dynamic withdrawal rule, tax-aware rebalancing, and capital-loss carry-forward results in existing totals (tax, realised gain, closing corpus). Dedicated per-row withdrawal-rule and rebalance columns, and a Historical Backtest Lab evidence sheet, are planned for a follow-up export update — check the shipped column header row in your exported CSV for the exact current column set.
+CSV and PDF exports carry the full v2.0 surface. The yearly CSV adds `spending_multiplier`, `guardrail_action`, `rebalance_gross_inr`, and `rebalance_tax_inr` columns; the metadata CSV lists the active withdrawal rule with its parameters, the rebalancing and backtest settings, and one line per planned goal; and a dedicated `backtest.csv` evidence sheet (cohort summary plus one row per start-year cohort) is included whenever the Backtest Lab is enabled and the horizon fits the bundled dataset. The PDF report mirrors this with a dynamic-spending note in Plan Diagnosis, a Historical Backtest Lab sub-section in Scenarios, and withdrawal-rule, rebalancing, and planned-goal tables in Methodology.
 
 ## 4. Stored Browser State
 

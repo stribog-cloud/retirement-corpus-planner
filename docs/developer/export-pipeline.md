@@ -1,12 +1,12 @@
 ---
 title: "Export Pipeline"
 created: 2026-05-15
-updated: 2026-05-18
+updated: 2026-07-06
 type: project/developer-doc
 status: governing-reference
-version: "1.0.1"
-revision: 2
-last_updated: 2026-05-18
+version: "1.1.0"
+revision: 3
+last_updated: 2026-07-06
 tags: [developer-docs, export, pdf, csv, json, evidence]
 project: fin-dashboard
 owners: [msambare]
@@ -51,9 +51,26 @@ Export changes require E2E smoke for PDF, CSV, scenario JSON, active and draft t
 
 The PDF is not currently claimed as PDF/UA accessible. Keep that limitation visible in user docs until an accessibility-grade PDF pipeline exists.
 
+## 7. v2.0 Export Surface (fin-8fb.9)
+
+Fin-8fb landed five model features (F1-F5, see `docs/developer/model-contract.md` §3-§5) without touching exports. fin-8fb.9 closed that gap — CSV and PDF must speak the same v2.0 model surface as the dashboard, per the Live-state Rule (§2).
+
+**CSV — `src/exports/csv.js`:**
+
+- `yearly.csv` gains four additive columns, appended immediately before `scenario_marker`: `spending_multiplier`, `guardrail_action` (F2), `rebalance_gross_inr`, `rebalance_tax_inr` (F5). The rebalance pair is populated only for the SWP engine (`calculateSwpPlan`) — Interest/IDCW rows never set these fields, so they render empty, matching F5's documented SWP-only scope.
+- `metadata.csv` gains `withdrawal_rule` (always emitted) plus only the params relevant to the active rule — `guardrail_band_pct`/`guardrail_adjust_pct` for `"guardrails"`, `percent_of_corpus_rate_pct` for `"percentOfCorpus"`, and `spending_floor_monthly_inr` for either dynamic rule (never for `"fixed"`) — followed by `rebalance_tax_aware`, `backtest_enabled`, `backtest_use_historical_inflation` (all always emitted), and a one-line-per-goal block: a `goals_count` header row followed by `goal_N_name` / `goal_N_amount_inr` / `goal_N_year` / `goal_N_inflation_indexed` for each planned goal (F3). The goals listing is new surface — pre-fin-8fb.9 exports rendered no household/lump-sum fields at all.
+- A new conditional 7th sheet, `backtest.csv` (F4), ships only when `state.backtestEnabled === 1` and the cohort replay is non-empty (a horizon longer than the bundled dataset yields the documented zero-cohort shape, which is omitted rather than shipped as an empty sheet — see model-contract.md §5.1). The sheet re-runs `calculateHistoricalBacktest` against the live export params (mirroring how `scenarios.csv` already re-runs Monte Carlo per scenario, per the Live-state Rule), and contains a summary key/value block (dataset id/window, cohort count, horizon, success rate, worst/best cohort) followed by one row per cohort.
+
+**PDF — `src/exports/pdf-report.js`:**
+
+- §3 Plan Diagnosis gains a compact "Dynamic spending" note beneath the projection summary table when `withdrawalRule === "guardrails"`, quoting the final projection year's resolved action and spending multiplier.
+- §5 Scenarios gains a "Historical Backtest Lab" sub-section (own page) whenever the backtest is enabled and available: a success-rate sentence, worst/best cohort lines, a planning-grade disclaimer line (mirroring the live app's Historical Backtest Lab card copy), and a cohort autotable capped at 35 rows. No chart is rendered for this sub-section — the cohort table is the accessible rendering per the sibling-data-table convention (§6 below and fin-c96's accessibility posture); the render function recomputes the backtest live from `reportParams` when `exportContext.reportBacktest` is not supplied (the UI wiring for a precomputed value is out of scope for this change).
+- §7 Methodology gains an assumptions sub-page: the active withdrawal rule + its params and the tax-aware rebalancing flag, followed by a "Planned goals" table (one row per goal) when household goals are configured.
+
 ## Revision History
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 1.1.0 | 3 | 2026-07-06 | Documented the v2.0 export surface (fin-8fb.9): yearly.csv guardrail/rebalance columns, metadata.csv withdrawal-rule/goals rows, the new conditional backtest.csv sheet, and the §3/§5/§7 PDF additions. |
 | 1.0.1 | 2 | 2026-05-18 | Added active/draft tax-law JSON export coverage expectations. |
 | 1.0.0 | 1 | 2026-05-15 | Added export-pipeline contract for live-state, provenance, privacy, and tests. |

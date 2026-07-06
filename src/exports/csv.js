@@ -2,8 +2,10 @@
  * csv.js — R4.9.5i Multi-Sheet CSV ZIP Exporter
  *
  * Implements exportCsvZip(state, mc, scenarios) which returns a Promise<Blob>
- * containing a ZIP archive with exactly 6 CSV entries:
+ * containing a ZIP archive with 6 core CSV entries, plus a 7th conditional entry:
  *   overview.csv, monthly.csv, yearly.csv, tax.csv, scenarios.csv, metadata.csv
+ *   backtest.csv — only when state.backtestEnabled===1 AND the cohort replay
+ *   is non-empty (fin-8fb.9 F4 — see buildBacktestCsv).
  *
  * Binding contract: §14 CSV Export Multi-Sheet Schema in audit/round-3/02-spec.md
  * Defect corrections applied per r4.9.5i-csv-schema-eco-review.md:
@@ -24,6 +26,19 @@
  *             disclaimer_url via DISCLAIMER_URL constant (fin-1uy R4.9.5j)
  *   scenarios: mc_p10/mc_p50/mc_p90 — populated per-scenario (fin-s87 R4.9.5j)
  *
+ * fin-8fb.9 (v2.0 exports) additions:
+ *   yearly: spending_multiplier, guardrail_action, rebalance_gross_inr,
+ *           rebalance_tax_inr — additive fields from the v2 model surface
+ *           (docs/developer/model-contract.md §4.1/§4.2/§3.2).
+ *   metadata: withdrawal_rule + active-rule params, rebalance_tax_aware,
+ *             backtest_enabled/backtest_use_historical_inflation, and
+ *             goal_N_name/amount/year/inflation_indexed (goals_count header) —
+ *             NEW surface, exports previously rendered no household/lump-sum
+ *             fields at all (fin-8fb F3 finding).
+ *   backtest.csv: full cohort replay evidence for the Historical Backtest Lab
+ *             (docs/developer/model-contract.md §5.1), re-computed from the
+ *             live params exactly like scenarioMc re-runs Monte Carlo above.
+ *
  * DO NOT modify src/model.js — uses buildMonthlyLedger as-is.
  */
 
@@ -39,9 +54,11 @@ import {
   householdPlanProfile,
   yearlyTax,
   paramsForProjectionYear,
-  calculateMonteCarlo
+  calculateMonteCarlo,
+  calculateHistoricalBacktest
 } from "../model.js";
 import { PLANNING_VERSION } from "../planning.js";
+import { DATASET_META } from "../data/india-annual-returns.js";
 
 /**
  * Canonical disclaimer URL for the app.
@@ -395,6 +412,10 @@ function buildYearlyCsv(ctx) {
     "cash_coverage_ratio",
     "effective_yield_pct",
     "year_end_closing_inr",    // alias of closing_balance_inr per §14.4
+    "spending_multiplier",     // fin-8fb F2: dynamic-withdrawal multiplier (1 in fixed mode)
+    "guardrail_action",        // fin-8fb F2: "none" | "cut" | "raise" | "inflation-hold"
+    "rebalance_gross_inr",     // fin-8fb F5: rebalance-leg gross sale value (0 outside SWP / tax-aware mode)
+    "rebalance_tax_inr",       // fin-8fb F5: rebalance-leg tax (0 outside SWP / tax-aware mode)
     "scenario_marker"
   ];
 
@@ -450,6 +471,12 @@ function buildYearlyCsv(ctx) {
         fmtRatio(row.cashCoverage),
         fmtPct(Number(row.effYield) * 100),
         fmtInr(row.closing),             // year_end_closing_inr: alias of closing_balance_inr
+        // fin-8fb F2: all three engines set spendingMultiplier/guardrailAction on
+        // every row (year-0 sentinel included) — no defensive fallback needed.
+        fmtRatio(row.spendingMultiplier),
+        csvCell(row.guardrailAction),
+        fmtInr(row.rebalanceGross),      // fin-8fb F5: undefined (Interest/IDCW) -> ""
+        fmtInr(row.rebalanceTax),        // fin-8fb F5: undefined (Interest/IDCW) -> ""
         marker                           // D-04: injected from export loop, not row data
       ]));
     }
@@ -756,6 +783,7 @@ function buildScenariosCsv(ctx) {
  */
 function buildMetadataCsv(ctx) {
   const {
+    reportState,
     reportParams,
     reportTaxLaw,
     reportMc,
@@ -802,10 +830,107 @@ function buildMetadataCsv(ctx) {
     ["mc_simulations_per_scenario", "500"]
   ];
 
+  // fin-8fb F2 — dynamic withdrawal rule + only the params relevant to the
+  // active rule; the rule itself is always emitted. Floor applies to both
+  // dynamic rules (never to "fixed" — see docs/developer/model-contract.md §4.1).
+  const withdrawalRule = String(reportState.withdrawalRule || "fixed");
+  const dynamicRuleRows = [["withdrawal_rule", withdrawalRule]];
+  if (withdrawalRule === "guardrails") {
+    dynamicRuleRows.push(
+      ["guardrail_band_pct", fmtPct(Number(reportState.guardrailBandPct) || 0)],
+      ["guardrail_adjust_pct", fmtPct(Number(reportState.guardrailAdjustPct) || 0)],
+      ["spending_floor_monthly_inr", fmtInr(Number(reportState.spendingFloorMonthly) || 0)]
+    );
+  } else if (withdrawalRule === "percentOfCorpus") {
+    dynamicRuleRows.push(
+      ["percent_of_corpus_rate_pct", fmtPct(Number(reportState.percentOfCorpusRate) || 0)],
+      ["spending_floor_monthly_inr", fmtInr(Number(reportState.spendingFloorMonthly) || 0)]
+    );
+  }
+  // fin-8fb F5 — opt-in tax-aware rebalancing flag; always emitted (default 0).
+  dynamicRuleRows.push(["rebalance_tax_aware", String(Number(reportState.rebalanceTaxAware) === 1 ? 1 : 0)]);
+  // fin-8fb F4 — Historical Backtest Lab flags; always emitted. See backtest.csv
+  // (buildBacktestCsv) for the full cohort replay when backtest_enabled=1.
+  dynamicRuleRows.push(["backtest_enabled", String(Number(reportState.backtestEnabled) === 1 ? 1 : 0)]);
+  dynamicRuleRows.push(["backtest_use_historical_inflation", String(Number(reportState.backtestUseHistoricalInflation) === 1 ? 1 : 0)]);
+
+  // fin-8fb F3 — planned goals, one-line-per-goal. NEW surface: exports previously
+  // rendered no household/lump-sum fields at all. reportHousehold.plannedLumpSums
+  // is already scoped to [] when !useHouseholdPlan (householdPlanProfile).
+  const goals = Array.isArray(reportHousehold.plannedLumpSums) ? reportHousehold.plannedLumpSums : [];
+  const goalRows = [["goals_count", String(goals.length)]];
+  goals.forEach((goal, i) => {
+    const n = i + 1;
+    goalRows.push(
+      [`goal_${n}_name`, goal.name || ""],
+      [`goal_${n}_amount_inr`, fmtInr(goal.amount)],
+      [`goal_${n}_year`, fmtInt(goal.year)],
+      [`goal_${n}_inflation_indexed`, String(Number(goal.inflate) === 1 ? 1 : 0)]
+    );
+  });
+
+  const allRows = [...rows, ...dynamicRuleRows, ...goalRows];
+
   const lines = [csvRow(header)];
-  for (const [key, value] of rows) {
+  for (const [key, value] of allRows) {
     lines.push(csvRow([key, value]));
   }
+  return lines.join("\r\n") + "\r\n";
+}
+
+/**
+ * Build backtest.csv — fin-8fb F4 Historical Backtest Lab evidence sheet.
+ * Only included in the ZIP when `state.backtestEnabled === 1` AND the
+ * resulting cohort replay is non-empty (a horizon longer than the bundled
+ * dataset yields the documented zero-cohort shape — see model-contract.md
+ * §5.1 — which is not useful evidence and is therefore omitted, not emitted
+ * as an empty sheet).
+ *
+ * Two row shapes in one sheet (summary key/value block, blank separator,
+ * then the per-cohort table) — mirrors how a reviewer reads a spreadsheet
+ * tab with a header block above a data table, and keeps every field
+ * individually addressable (no compound-quoted cells to unpack).
+ */
+function buildBacktestCsv(ctx) {
+  const { backtestResult: r } = ctx;
+
+  // r.worst/r.best are guaranteed non-null here: the only call site
+  // (exportCsvZip) invokes this builder only when r.cohortCount > 0, and
+  // calculateHistoricalBacktest only returns null worst/best in the
+  // zero-cohort shape (model-contract.md §5.1) — no defensive fallback needed.
+  const summaryRows = [
+    ["dataset_id", DATASET_META.id],
+    ["dataset_first_fy", DATASET_META.firstFy],
+    ["dataset_last_fy", DATASET_META.lastFy],
+    ["dataset_source_years", String(DATASET_META.count)],
+    ["cohort_count", fmtInt(r.cohortCount)],
+    ["horizon_years", fmtInt(r.horizon)],
+    ["success_rate", fmtRatio(r.successRate)],
+    ["worst_start_fy", r.worst.startFy],
+    ["worst_ending_corpus_inr", fmtInr(r.worst.endingCorpus)],
+    ["worst_depletion_year", r.worst.depletionYear != null ? fmtInt(r.worst.depletionYear) : ""],
+    ["best_start_fy", r.best.startFy],
+    ["best_ending_corpus_inr", fmtInr(r.best.endingCorpus)]
+  ];
+
+  const cohortHeader = ["start_fy", "ending_corpus_inr", "real_ending_corpus_inr", "depleted", "depletion_year"];
+  const cohortLines = [csvRow(cohortHeader)];
+  for (const c of r.cohorts) {
+    cohortLines.push(csvRow([
+      c.startFy,
+      fmtInr(c.endingCorpus),
+      fmtInr(c.realEndingCorpus),
+      fmtInt(c.depleted ? 1 : 0),
+      c.depletionYear != null ? fmtInt(c.depletionYear) : ""
+    ]));
+  }
+
+  const lines = [
+    csvRow(["key", "value"]),
+    ...summaryRows.map(([key, value]) => csvRow([key, value])),
+    "",
+    ...cohortLines
+  ];
   return lines.join("\r\n") + "\r\n";
 }
 
@@ -947,6 +1072,16 @@ export async function exportCsvZip(exportCtx, analyticsContext) {
     };
   });
 
+  // fin-8fb F4 — re-compute the Historical Backtest Lab cohort replay for the
+  // active plan's own params, mirroring how scenarioMc re-runs Monte Carlo
+  // above (exports must speak the same live model state, not a cached UI
+  // result). Gated on state.backtestEnabled, not reportParams, since the
+  // state field is the authoritative user-facing toggle; projectionParamsFromState
+  // passes it through unchanged via its params spread.
+  const backtestResult = Number(reportState.backtestEnabled) === 1
+    ? calculateHistoricalBacktest(reportParams)
+    : null;
+
   // ── Shared context for all sheet builders ─────────────────────────────────
   const ctx = {
     reportState,
@@ -959,16 +1094,22 @@ export async function exportCsvZip(exportCtx, analyticsContext) {
     generatedAt,
     startCalendarYear,
     disclaimerFullText,
-    scenarioResults
+    scenarioResults,
+    backtestResult
   };
 
-  // ── Build all 6 sheets ───────────────────────────────────────────────────
+  // ── Build all sheets (6 core + backtest.csv when available) ──────────────
   const overviewContent = buildOverviewCsv(ctx);
   const monthlyContent = buildMonthlyCsv(ctx);
   const yearlyContent = buildYearlyCsv(ctx);
   const taxContent = buildTaxCsv(ctx);
   const scenariosContent = buildScenariosCsv(ctx);
   const metadataContent = buildMetadataCsv(ctx);
+  // A dataset-shorter-than-horizon backtest returns the documented zero-cohort
+  // shape (model-contract.md §5.1) — omit the sheet rather than ship an empty one.
+  const backtestContent = backtestResult && backtestResult.cohortCount > 0
+    ? buildBacktestCsv(ctx)
+    : null;
 
   // ── Package into ZIP ─────────────────────────────────────────────────────
   const zip = new JSZip();
@@ -978,6 +1119,7 @@ export async function exportCsvZip(exportCtx, analyticsContext) {
   zip.file("tax.csv", taxContent);
   zip.file("scenarios.csv", scenariosContent);
   zip.file("metadata.csv", metadataContent);
+  if (backtestContent) zip.file("backtest.csv", backtestContent);
 
   const blob = await zip.generateAsync({
     type: "blob",
