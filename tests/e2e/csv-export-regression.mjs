@@ -359,13 +359,15 @@ try {
 
   console.log("\n── Axis (s): Structural invariants CSV-S-01..07 ──");
 
-  // CSV-S-01: ZIP contains exactly 6 entries with exact names
+  // CSV-S-01: ZIP contains exactly 7 entries with exact names
+  // (v2.0 fin-8fb.9: backtest.csv ships whenever the Backtest Lab is
+  // enabled — BASE default — and the horizon fits the bundled dataset.)
   const expectedEntries = [
-    "metadata.csv", "monthly.csv", "overview.csv",
+    "backtest.csv", "metadata.csv", "monthly.csv", "overview.csv",
     "scenarios.csv", "tax.csv", "yearly.csv"
   ].sort();
-  check("s", "CSV-S-01: ZIP contains exactly 6 entries",
-    zipEntries.length === 6,
+  check("s", "CSV-S-01: ZIP contains exactly 7 entries",
+    zipEntries.length === 7,
     `entries=${JSON.stringify(zipEntries)}`);
   check("s", "CSV-S-01: ZIP entry names match schema exactly",
     JSON.stringify(zipEntries) === JSON.stringify(expectedEntries),

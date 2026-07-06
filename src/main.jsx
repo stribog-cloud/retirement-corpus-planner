@@ -6168,11 +6168,6 @@ function DashboardPages() {
     appShellStyle
   } = dashboard;
   const mobileNextAction = overviewActions[0] || { label: "Review plan", onClick: () => switchView("overview") };
-  // fin-8fb.8 follow-up (W0-B note): mobile-insights-sheet is a real
-  // aria-modal surface (see its role="dialog" below) but previously had no
-  // focus management, unlike GuidedTour/HelpDrawer/AssumptionDrawer.
-  const mobileInsightsRef = useRef(null);
-  useModalFocus(mobileInsightsOpen, mobileInsightsRef, { onClose: () => setMobileInsightsOpen(false) });
   return (
     <>
               <PageNarrative narrative={activeNarrative} />
@@ -7270,6 +7265,12 @@ function DashboardShell() {
     appShellStyle,
     immediateMcSimulations
   } = dashboard;
+  // fin-8fb.8 follow-up (W0-B note): mobile-insights-sheet is a real
+  // aria-modal surface (see its role="dialog" below) but previously had no
+  // focus management, unlike GuidedTour/HelpDrawer/AssumptionDrawer. The ref
+  // lives here in DashboardShell, where the sheet is actually rendered.
+  const mobileInsightsRef = useRef(null);
+  useModalFocus(mobileInsightsOpen, mobileInsightsRef, { onClose: () => setMobileInsightsOpen(false) });
   return (
     <>
       <div className="app-shell" style={appShellStyle}>
