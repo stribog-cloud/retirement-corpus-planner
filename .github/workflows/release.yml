@@ -20,8 +20,36 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
-      - name: Run unit tests
-        run: npx vitest run --coverage --coverage.reporter=text
+      # Mirror ci.yml's `lint` job so a tagged release cannot ship without
+      # the same format/lint/static gates that gate every push to main.
+      # Uses the npm script form (not `make static`), which is just
+      # `node scripts/static-analysis.mjs` — `make static` additionally runs
+      # `test:e2e:offline-load`, which needs a browser/build step that is
+      # out of scope for this quick pre-build gate.
+      - name: Format check
+        run: npm run format
+      - name: Lint
+        run: npm run lint
+      - name: Static analysis
+        run: npm run static
+      - name: Run unit tests with coverage
+        run: npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
+      - name: Extract coverage percentage
+        id: coverage
+        # Mirror ci.yml's test-unit coverage-threshold enforcement (same
+        # 96% floor from vite.config.js) so a release tag cannot be cut from
+        # a commit that would fail the main-branch coverage gate. The
+        # coverage-badge update step in ci.yml is intentionally not mirrored
+        # here: it is guarded by `github.ref == 'refs/heads/main'`, which is
+        # never true for a tag-triggered release run.
+        run: |
+          COVERAGE=$(node -e "console.log(JSON.parse(require('fs').readFileSync('./coverage/coverage-summary.json')).total.statements.pct)")
+          echo "Coverage: ${COVERAGE}%"
+          THRESHOLD=96
+          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "::error::Coverage ${COVERAGE}% is below ${THRESHOLD}% threshold"
+            exit 1
+          fi
 
   release:
     name: Release
@@ -39,6 +67,16 @@ jobs:
         run: npm ci
       - name: Build single-file HTML release
         run: npm run build
+      # Release-hardening gates: verify the exact artifact about to be
+      # published is byte/size-budget correct, passes the shipped-form smoke
+      # checks, and loads no external network resource — before checksums
+      # are cut and the GitHub Release is created below.
+      - name: Artifact integrity check
+        run: npm run artifact:check
+      - name: Smoke test
+        run: npm run test:smoke
+      - name: Zero-network runtime gate
+        run: npm run network:gate
       - name: Generate checksums
         run: |
           cd dist

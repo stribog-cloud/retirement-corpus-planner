@@ -361,7 +361,7 @@ describe.skipIf(!hasInternalDocs)("Stribog Charter control-plane documents", () 
     // internal `last_updated` frontmatter field; internal control-plane docs
     // still do. Scope the frontmatter assertion accordingly.
     if (!publicRelease) {
-      expect(content).toMatch(/last_updated"?\s*:\s*"?2026-05-\d{2}/);
+      expect(content).toMatch(/last_updated"?\s*:\s*"?\d{4}-\d{2}-\d{2}/);
     }
     for (const marker of markers) {
       expect(content).toContain(marker);

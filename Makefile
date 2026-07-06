@@ -1,6 +1,6 @@
-.PHONY: all format lint static trailer-check test test-unit coverage build artifact-check artifact-write docs-screenshots test-smoke test-e2e test-a11y test-charter-docs ui-tokens ui-contrast ui-perf doc-gate secrets vulnerability clean
+.PHONY: all format lint static trailer-check test test-unit coverage build artifact-check artifact-write docs-screenshots test-smoke test-e2e test-a11y test-charter-docs ui-tokens ui-contrast ui-perf doc-gate secrets network-gate vulnerability clean
 
-all: format lint static trailer-check build artifact-check coverage test-smoke test-e2e test-a11y ui-tokens ui-contrast ui-perf doc-gate test-charter-docs secrets vulnerability
+all: format lint static trailer-check build artifact-check coverage test-smoke test-e2e test-a11y ui-tokens ui-contrast ui-perf doc-gate test-charter-docs secrets network-gate vulnerability
 
 format:
 	npm run format
@@ -61,6 +61,9 @@ doc-gate:
 
 secrets:
 	npm run secrets
+
+network-gate:
+	npm run network:gate
 
 vulnerability:
 	npm run vulnerability

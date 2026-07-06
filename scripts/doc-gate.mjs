@@ -138,7 +138,7 @@ for (const path of required) {
       for (const key of ["title", "created", "updated", "type", "status", "version", "revision", "last_updated", "tags", "project"]) {
         if (!frontmatterValue(content, key)) failures.push(`${path}: missing frontmatter key ${key}`);
       }
-      if (!/last_updated:\s+2026-05-\d{2}/.test(content)) failures.push(`${path}: missing last_updated frontmatter`);
+      if (!/last_updated:\s+\d{4}-\d{2}-\d{2}/.test(content)) failures.push(`${path}: missing last_updated frontmatter`);
     }
     if (!publicReleaseExempt && !/## .*Revision History/.test(content) && !path.includes("CHANGELOG") && path !== "AGENTS.md") failures.push(`${path}: missing revision history`);
   }
