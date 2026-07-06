@@ -381,6 +381,35 @@ describe("fin-8fb F2 — calculateSwpPlan: zero-principal edge case", () => {
   });
 });
 
+describe("fin-8fb.11 BLOCKER-B — a depleted ($0) portfolio must freeze guardrails, not ratchet a phantom 'raise' forever", () => {
+  it("engineered depletion: once opening corpus hits 0, every subsequent year reports guardrailAction 'none', the multiplier never increases again, and withdrawal stays 0", () => {
+    const state = swpState({
+      principal: 5000000,
+      equityShare: 60,
+      withdrawalRule: "guardrails",
+      guardrailBandPct: 10,
+      guardrailAdjustPct: 10,
+      years: 10,
+      sequenceReturnOverrides: crashOverrides([0, -60, -60, -60, -60, -60, -60, -60, -60, -60])
+    });
+    const report = calculateSwpPlan(projectionParamsFromState(state));
+
+    // Sanity: the crash sequence actually depletes the corpus (opening hits
+    // exactly 0 by year 3) -- otherwise this test would prove nothing.
+    const depletedYears = report.rows.filter((row) => row.year >= 1 && row.opening === 0);
+    expect(depletedYears.length).toBeGreaterThan(0);
+    expect(report.rows[3].opening).toBe(0);
+
+    let priorMultiplier = null;
+    for (const row of depletedYears) {
+      expect(row.guardrailAction).toBe("none");
+      expect(row.withdrawal).toBe(0);
+      if (priorMultiplier !== null) expect(row.spendingMultiplier).toBeLessThanOrEqual(priorMultiplier);
+      priorMultiplier = row.spendingMultiplier;
+    }
+  });
+});
+
 describe("fin-8fb F2 — calculateSwpPlan: percentOfCorpus engine integration", () => {
   it("annual recurring target tracks percentOfCorpusRate% of that year's opening corpus", () => {
     const state = swpState({

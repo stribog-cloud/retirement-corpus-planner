@@ -873,7 +873,7 @@ function netCapitalGainStreams(streams = {}, params = {}) {
     const currentAY = Math.round(Number(params.currentAY) || 0) || new Date().getFullYear() + 1;
     const grossStcg = gains.equityStcg;
     const grossLtcg = gains.equityLtcg + gains.listedBondLtcg;
-    const newStcl = longSetoff.remaining > 0 ? 0 : shortSetoff.remaining;  // residual ST loss after within-year setoff
+    const newStcl = shortSetoff.remaining;  // residual ST loss after within-year setoff — §74/§70/§71 track STCL and LTCL as INDEPENDENT pools; must not be zeroed by a coexisting LTCL residual (fin-8fb.11 BLOCKER-A)
     const newLtcl = longSetoff.remaining;  // residual LT loss after within-year setoff
     const cf = applyAndUpdateCarryForwardPool(pool, currentAY, grossStcg, grossLtcg, newStcl, newLtcl);
     // Overwrite gains with carry-forward-reduced values
@@ -910,8 +910,20 @@ function normalizeTaxRuleRate(value, fallback = 0) {
   return numeric > 1 ? numeric / 100 : numeric;
 }
 
+// fin-8fb.11 MAJOR (rt-security #2, §4.2) — user-pasted tax-law JSON has no
+// intrinsic size limit. Without a cap, an adversarial slab/surcharge array or
+// product-rule key set inflates iteration cost on slabTaxBeforeCess's hot
+// path (called once per Monte Carlo sample-year). These caps sit far above
+// any real ruleset (DEFAULT_TAX_LAW's largest array is 7 entries), so they
+// never constrain a legitimate tax-law edit -- they only bound a
+// resource-consumption vector from untrusted input.
+const MAX_TAX_LAW_SLAB_BANDS = 64;
+const MAX_TAX_LAW_SURCHARGE_BANDS = 32;
+const MAX_TAX_LAW_PRODUCT_RULE_KEYS = 64;
+const MAX_TAX_LAW_TEXT_FIELD_LENGTH = 2000;
+
 function cleanSlabArray(slabs, fallback) {
-  const source = Array.isArray(slabs) && slabs.length ? slabs : fallback;
+  const source = Array.isArray(slabs) && slabs.length ? slabs.slice(0, MAX_TAX_LAW_SLAB_BANDS) : fallback;
   const cleaned = source.map((band) => ({
     upto: band.upto === null || band.upto === undefined ? Infinity : Math.max(0, Number(band.upto) || 0),
     rate: normalizeTaxRuleRate(band.rate)
@@ -920,7 +932,7 @@ function cleanSlabArray(slabs, fallback) {
 }
 
 function cleanSurchargeBands(bands, fallback) {
-  const source = Array.isArray(bands) && bands.length ? bands : fallback;
+  const source = Array.isArray(bands) && bands.length ? bands.slice(0, MAX_TAX_LAW_SURCHARGE_BANDS) : fallback;
   const cleaned = source.map((band) => ({
     above: Math.max(0, Number(band.above) || 0),
     upto: band.upto === null || band.upto === undefined ? Infinity : Math.max(0, Number(band.upto) || 0),
@@ -939,7 +951,7 @@ function cleanSurchargeBands(bands, fallback) {
 
 function cleanProductTaxRules(rules = {}, fallback = DEFAULT_TAX_LAW.productTaxRules) {
   const cleaned = { ...fallback };
-  Object.entries(rules || {}).forEach(([key, rule]) => {
+  Object.entries(rules || {}).slice(0, MAX_TAX_LAW_PRODUCT_RULE_KEYS).forEach(([key, rule]) => {
     if (!rule || typeof rule !== "object") return;
     cleaned[key] = {
       ...cleaned[key],
@@ -959,10 +971,10 @@ function sanitizeTaxLaw(raw = {}) {
   const deductions = raw.deductions || {};
   const tds = raw.tdsDefaults || {};
   return {
-    version: String(raw.version || fallback.version),
-    source: String(raw.source || fallback.source),
-    sourceUrl: String(raw.sourceUrl || fallback.sourceUrl),
-    updatedOn: String(raw.updatedOn || fallback.updatedOn),
+    version: String(raw.version || fallback.version).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
+    source: String(raw.source || fallback.source).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
+    sourceUrl: String(raw.sourceUrl || fallback.sourceUrl).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
+    updatedOn: String(raw.updatedOn || fallback.updatedOn).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
     newRegimeSlabs: cleanSlabArray(raw.newRegimeSlabs, fallback.newRegimeSlabs),
     oldRegimeSlabs: {
       below60: cleanSlabArray(old.below60, fallback.oldRegimeSlabs.below60),
@@ -1009,8 +1021,8 @@ function sanitizeTaxLaw(raw = {}) {
     section87AInterpretations: { ...fallback.section87AInterpretations, ...(raw.section87AInterpretations || {}) },
     productTaxRules: cleanProductTaxRules(raw.productTaxRules, fallback.productTaxRules),
     cess: normalizeTaxRuleRate(raw.cess ?? fallback.cess),
-    debtMfTaxation: String(raw.debtMfTaxation || fallback.debtMfTaxation),
-    notes: String(raw.notes || fallback.notes)
+    debtMfTaxation: String(raw.debtMfTaxation || fallback.debtMfTaxation).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
+    notes: String(raw.notes || fallback.notes).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH)
   };
 }
 
@@ -1775,9 +1787,17 @@ function resolveDynamicSpending({
   let inflationHeld = false;
   let guardrailAction = "none";
 
-  if (year >= 2 && initialRate > 0) {
+  // fin-8fb.11 BLOCKER-B: a depleted (<=0) opening corpus has no spending
+  // rate to evaluate -- plannedAnnual / 0 is not "under-spending", it's an
+  // undefined rate. Without this guard, currentRate fell back to 0, which
+  // always reads as "below the lower band", so a fully depleted portfolio
+  // ratcheted spendingMultiplier upward with guardrailAction "raise" every
+  // year forever. Freeze instead: skip the whole band/inflation-hold
+  // decision (multiplier and guardrailAction keep their pre-block defaults
+  // above -- unchanged and "none").
+  if (year >= 2 && initialRate > 0 && openingCorpus > 0) {
     const plannedAnnual = baseAnnualCash * candidateInflationFactor * safeMultiplier;
-    const currentRate = openingCorpus > 0 ? plannedAnnual / openingCorpus : 0;
+    const currentRate = plannedAnnual / openingCorpus;
     const upperBand = initialRate * (1 + bandPct);
     const lowerBand = initialRate * (1 - bandPct);
 

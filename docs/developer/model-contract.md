@@ -4,8 +4,8 @@ created: 2026-05-15
 updated: 2026-07-06
 type: project/developer-doc
 status: governing-reference
-version: "1.7.0"
-revision: 9
+version: "1.7.1"
+revision: 10
 last_updated: 2026-07-06
 tags: [developer-docs, model, tax, planning, contract]
 project: fin-dashboard
@@ -71,6 +71,19 @@ losses correctly (STCL → STCG → residual LTCG; LTCL → LTCG only) and
 records the residual loss for future use. Since 2026-07-06 it is also
 threaded live across projection years, not just available as an isolated
 primitive.
+
+**STCL and LTCL are recorded as independent pools (fin-8fb.11 BLOCKER-A
+fix, 2026-07-06).** The residual short-term loss recorded for next year
+(`newStcl`) and the residual long-term loss recorded for next year
+(`newLtcl`) are each computed unconditionally from their own within-year
+setoff residual — a year that leaves an unabsorbed LTCL must NOT suppress
+that same year's unabsorbed STCL from being recorded (§70/§71 track the two
+loss types independently; there is no rule under which one loss type's
+carry-forward depends on whether the other type also has a residual). A
+prior version of this code zeroed the STCL pool entry whenever an LTCL
+residual coexisted in the same year, silently dropping a real carry-forward
+loss; this is covered by
+`tests/carryforward-projection.test.jsx` ("BLOCKER-A" describe block).
 
 **Mechanism — one commit per projection year, never inside the monthly hot
 path.** `calculateSwpPlan` and `calculateInterestPlan` each hold a pool
@@ -191,6 +204,33 @@ the taxed path introduces no randomness of its own.
 tax-free branch is textually unchanged from before F5, so default-state
 output (and `tests/v2-parity-goldens.test.jsx`) remains byte-identical.
 
+### 3.3 Tax-Law JSON Input Caps (fin-8fb.11 MAJOR fix, 2026-07-06)
+
+The editable tax-law ruleset (`taxLawJson` → `sanitizeTaxLaw`) is untrusted
+user-pasted input with no other size limit. `sanitizeTaxLaw` and its helpers
+(`cleanSlabArray`, `cleanSurchargeBands`, `cleanProductTaxRules`) now cap
+array/key length before processing, and free-text fields are length-capped:
+
+| Field | Cap |
+|-------|-----|
+| `newRegimeSlabs` / each old-regime slab array | ≤ 64 bands |
+| `surchargeBands` | ≤ 32 bands |
+| `productTaxRules` | ≤ 64 processed keys per sanitize call |
+| `version`, `source`, `sourceUrl`, `updatedOn`, `debtMfTaxation`, `notes` | ≤ 2000 characters |
+
+These caps bound a resource-consumption vector: an adversarial slab/
+surcharge array inflates iteration cost on `slabTaxBeforeCess`, which runs
+on the hot Monte Carlo per-sample-year path. The caps sit far above any real
+ruleset (`DEFAULT_TAX_LAW`'s largest array is 7 entries), so a legitimate
+tax-law edit is never truncated; `DEFAULT_TAX_LAW` round-trips through
+`sanitizeTaxLaw` with every band and key preserved
+(`tests/tax-law-caps.test.jsx`). Arrays are capped via `.slice()` before
+mapping/filtering (the same "cap first" pattern `sanitizePlannedLumpSums`
+already used); `productTaxRules` caps the number of *input* entries
+processed per call, not the resulting object's total key count (which also
+carries over the fixed set of `DEFAULT_TAX_LAW.productTaxRules` fallback
+keys untouched).
+
 ## 4. Cash Engine Contract
 
 | Engine | Contract |
@@ -263,6 +303,26 @@ ignored) guardrail/percentOfCorpus fields.
 A frozen inflation factor is a **permanent** one-year skip, not a deferred
 catch-up: later years keep compounding from the frozen level, matching
 classic Guyton-Klinger, not the raw calendar exponent.
+
+**Depleted-portfolio freeze (fin-8fb.11 BLOCKER-B fix, 2026-07-06).** The
+guardrails band/inflation-hold decision in step 1 above is only evaluated
+when `openingCorpus > 0` (in addition to the existing `year >= 2 &&
+initialRate > 0` gate). A `$0` (or negative, from a normalization edge case)
+opening corpus has no spending rate to evaluate — `plannedAnnual /
+openingCorpus` is undefined, not "under-spending." A prior version of this
+code fell back to `currentRate = 0` in that case, which always reads as
+below the lower band, so a fully depleted portfolio ratcheted
+`spendingMultiplier` upward with `guardrailAction: "raise"` every
+subsequent year forever, with no ceiling until the `[0.5, 2.0]` clamp. The
+fix **freezes, not cuts**: when the corpus is already at zero, there is
+nothing left to protect or to raise against, so the multiplier and
+inflation factor simply hold at their last value and `guardrailAction`
+reports `"none"` (the same "no decision made" value fixed/percentOfCorpus
+modes already use) rather than inventing a new terminal state. This is
+covered by `tests/dynamic-withdrawal.test.jsx` ("BLOCKER-B" describe
+block); the pre-existing zero-*principal* test (`initialRate` never
+established because year 1's own opening corpus is already `0`) is a
+different code path (the `initialRate > 0` gate) and is unaffected.
 
 **percentOfCorpus:** `annualCashTarget = percentOfCorpusRate% x
 openingCorpus`, every year — no multiplier, no band/hold state
@@ -501,6 +561,7 @@ This is the natural convention for an Indian retiree who states "I need ₹X/mon
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 1.7.1 | 10 | 2026-07-06 | fin-8fb.11 red-team fix cycle: (1) BLOCKER-A — §3.1 corrected; `netCapitalGainStreams`'s residual-STCL computation (`newStcl`) was wrongly zeroed whenever the same year also left an unabsorbed LTCL residual, silently dropping a real §74 carry-forward loss (STCL/LTCL are independent pools). Now computed unconditionally, symmetric with `newLtcl`. (2) BLOCKER-B — §4.1 corrected; `resolveDynamicSpending`'s guardrails band evaluation now requires `openingCorpus > 0` in addition to the existing `year >= 2 && initialRate > 0` gate, so a fully depleted ($0) portfolio freezes (`guardrailAction: "none"`, multiplier unchanged) instead of reading a `plannedAnnual / 0` fallback as perpetual under-spending and ratcheting `spendingMultiplier` upward forever. (3) MAJOR (rt-security #2, §4.2) — added §3.3; `sanitizeTaxLaw`'s slab/surcharge/product-rule arrays and free-text fields are now capped (64/32/64 entries, 2000 chars) to bound resource consumption from adversarial `taxLawJson` input, with no effect on any real ruleset. New tests: `tests/tax-law-caps.test.jsx`; extended `tests/carryforward-projection.test.jsx` and `tests/dynamic-withdrawal.test.jsx`. |
 | 1.7.0 | 9 | 2026-07-06 | fin-8fb F5: added §3.2 — opt-in tax-aware rebalancing (`rebalanceTaxAware`, default 0). `rebalanceBucketsToShare` gained optional `taxAware`/`context` arguments; when active, the selling leg is a real FIFO lot sale (`sellBucketGrossWithTax`) routed through `previewLotSale` into the SAME `context.streams` the monthly redemption loop and F1's year-end carry-forward true-up both read, so a rebalance-realized gain/loss participates in within-year §74 netting and the carry-forward pool. Documented the gross-sized (not grossed-up) transfer convention (`before - tax` total after a taxed rebalance), the new additive yearly ledger fields `rebalanceGross`/`rebalanceTax`, and why they are folded into the year's aggregate tax/gain totals but deliberately excluded from `grossRedemption`. Default mode (`rebalanceTaxAware = 0`) is textually unchanged and byte-identical. New export: `rebalanceBucketsToShare`. |
 | 1.6.0 | 8 | 2026-07-06 | fin-8fb F4: added §5.1 — Historical Backtest Lab. `calculateHistoricalBacktest(params, dataset = INDIA_ANNUAL_RETURNS)` deterministically replays every historical cohort window through the live cash engine via the same `sequenceReturnOverrides` plumbing Monte Carlo uses (no RNG). Documented the dataset-injection choice (imported directly into `src/model.js`, which is not import-free), the historical-inflation override's cumulative per-year compounding (`cumulativeInflationFactor`, `historicalInflationRateForYear` — both degrade to the exact pre-F4 `Math.pow` expression when no override is set, verified byte-identical against the full pre-F4 suite), the success-definition parity with `calculateMonteCarlo`, the known `buildMonthlyLedger` inflation-override gap, and the new `backtestEnabled`/`backtestUseHistoricalInflation` state fields. New exports: `calculateHistoricalBacktest`, `historicalReturnOverrideForYear`, `cumulativeInflationFactor`, `historicalInflationRateForYear`. UI integration (card, toggle, `MODEL_DEBUG_API`) is phase 2 and out of scope for this change. |
 | 1.5.0 | 7 | 2026-07-06 | fin-8fb F2: added §4.1 — dynamic withdrawal rules (`withdrawalRule`: `fixed`/`guardrails`/`percentOfCorpus`). New pure helper `resolveDynamicSpending` resolves the recurring annual cash target at each year boundary in `calculateSwpPlan`/`calculateInterestPlan`/`calculateIdcwPlan` (all three engines covered); fixed mode is structurally byte-identical to pre-F2 output. Documented guardrails band/adjust/clamp/inflation-hold precedence, the permanent (non-catch-up) held-inflation-factor semantics, percentOfCorpus's bypass of `inflateWithdrawals`, the nominal-escalation floor, new additive yearly ledger fields (`spendingMultiplier`, `guardrailAction`), the known `buildMonthlyLedger` static-target-curve limitation for Interest/IDCW, and that `cashCoverage` is always measured against the resolved (not original) target. New exports: `resolveDynamicSpending`. |

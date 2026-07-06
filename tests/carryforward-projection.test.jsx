@@ -130,6 +130,82 @@ describe("fin-8fb F1 — applyYearEndCarryForward (direct unit tests of the year
   });
 });
 
+describe("fin-8fb.11 BLOCKER-A — STCL/LTCL pools are independent (§74/§70/§71); a residual LTCL must not zero out a coexisting STCL", () => {
+  it("primitive repro: -100 STCG and -200 LTCG in one year, empty pool -> stclPool totals 100 AND ltclPool totals 200 (not stclPool dropped to 0)", () => {
+    const pool = { stclPool: [], ltclPool: [] };
+    const yearParams = { taxRegime: "new", residentStatus: "resident" };
+    const finalStreams = { ...emptyTaxStreams(), equityStcg: -100, equityLtcg: -200 };
+
+    applyYearEndCarryForward(pool, yearParams, finalStreams, 1);
+
+    const stclTotal = pool.stclPool.reduce((sum, entry) => sum + entry.amount, 0);
+    const ltclTotal = pool.ltclPool.reduce((sum, entry) => sum + entry.amount, 0);
+    expect(stclTotal).toBe(100);
+    expect(ltclTotal).toBe(200);
+  });
+
+  it("full-engine repro: a mixed-loss crash year (both an unabsorbed STCL and LTCL) carries the STCL into year 2, offsetting year 2's STCG", () => {
+    const params = projectionParamsFromState(normalizeState({
+      ...BASE,
+      incomeMode: "swp",
+      useAssetReturns: 1,
+      equityShare: 50,
+      equityInstrument: "equityStcg",
+      debtInstrument: "equityLtcg",
+      costBasisPct: 75,
+      legacyHoldingYears: 3,
+      useFmvGrandfathering: 0,
+      harvestLtcg: 0,
+      allowPrincipalDrawdown: 1,
+      cashMode: "monthlyTarget",
+      monthlyTarget: 150000,
+      withdrawalPriority: "proRata",
+      years: 2,
+      shockYear: 0,
+      shockDrop: 0,
+      annualContribution: 0,
+      contributionStepUp: 0,
+      section87A: 0,
+      otherIncome: 0,
+      pensionIncome: 0,
+      // Year 1: both buckets crash -55%, realizing an unabsorbed loss in EACH
+      // type (equity=ST-taxed, debt=LT-taxed) -- both go into the pool.
+      // Year 2: equity recovers hard (+300%) into a real STCG; debt keeps
+      // falling (-10%) so its year-2 stream stays <=0 (gains.equityLtcg
+      // clamps to 0 that year) -- isolating the check to "does the carried
+      // STCL (not LTCL, which has nothing to offset) reduce year 2's STCG".
+      sequenceReturnOverrides: [
+        { equityReturn: -55, debtReturn: -55 },
+        { equityReturn: 300, debtReturn: -10 }
+      ]
+    }));
+    const report = calculateSwpPlan(params);
+
+    // Year 1 realizes unabsorbed losses in both buckets (equity=ST-taxed, debt=LT-taxed).
+    expect(report.rows[1].shortTermGain).toBeCloseTo(-181623.76117859443, 4);
+    expect(report.rows[1].longTermGain).toBeCloseTo(-182078.97152896214, 4);
+
+    // Year 2 realizes a genuine STCG; the debt leg stays negative (no LTCG to carry-forward against).
+    const row2 = report.rows[2];
+    expect(row2.shortTermGain).toBeCloseTo(287117.6037393663, 4);
+    expect(row2.longTermGain).toBeLessThan(0);
+
+    // Year 2's naive (no-carry-forward) tax on the SAME gain streams, for comparison.
+    const yearParams2 = paramsForProjectionYear(params, 2);
+    const naive = investmentTaxProfile(yearParams2, { ...emptyTaxStreams(), equityStcg: row2.shortTermGain, equityLtcg: row2.longTermGain });
+    expect(naive.tax).toBeCloseTo(59720.46157778819, 4);
+
+    // The bug (longSetoff.remaining > 0 ? 0 : shortSetoff.remaining) drops the
+    // STCL pool entirely whenever an LTCL residual coexists (as here), so
+    // year 2's STCG got taxed at exactly the naive (no-STCL-relief) figure.
+    // Since year 2's LTCG is <=0, ONLY the STCL fix can move this number: the
+    // fix makes the STCL pool unconditional, so tax must land strictly below
+    // naive, at the fixed figure below.
+    expect(row2.tax).toBeCloseTo(21942.71925264055, 4);
+    expect(row2.tax).toBeLessThan(naive.tax);
+  });
+});
+
 describe("fin-8fb F1 — calculateSwpPlan: crash-then-recovery carries a real loss across years", () => {
   function crashRecoveryParams() {
     return normalizeState({

@@ -155,6 +155,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   realize a loss today; IDCW: out of scope, no capital gains are realized by
   that engine).
 
+### Fixed
+
+- **§74 carry-forward silently dropped a short-term capital loss whenever a
+  long-term loss also went unabsorbed in the same year** (fin-8fb.11
+  BLOCKER-A). `netCapitalGainStreams`'s residual-STCL calculation was
+  conditioned on the residual-LTCL calculation (`newStcl = longSetoff
+  .remaining > 0 ? 0 : shortSetoff.remaining`), zeroing a real, unabsorbed
+  short-term loss whenever any long-term loss also remained that year — but
+  §70/§71/§74 track STCL and LTCL as independent pools with no such
+  dependency. Now computed unconditionally
+  (`newStcl = shortSetoff.remaining`), symmetric with the already-correct
+  `newLtcl`. Plans with a mixed-type crash year may now show a lower
+  projected tax in a later recovery year than before this fix, since the
+  previously-dropped STCL is now correctly available to offset a future
+  STCG. See `docs/developer/model-contract.md` §3.1.
+
+- **Guardrails withdrawal rule ratcheted a "raise" forever on a fully
+  depleted ($0) portfolio** (fin-8fb.11 BLOCKER-B). `resolveDynamicSpending`
+  fell back to `currentRate = 0` when `openingCorpus` was `0`, which always
+  reads as below the guardrails' lower band ("under-spending"), so a
+  depleted portfolio's `spendingMultiplier` was raised every subsequent year
+  with no natural ceiling other than the `[0.5, 2.0]` clamp — even though
+  actual withdrawals stayed `0` throughout (nothing left to withdraw). The
+  guardrails band/inflation-hold evaluation now additionally requires
+  `openingCorpus > 0`; once depleted, the multiplier freezes at its last
+  value and `guardrailAction` reports `"none"`. See
+  `docs/developer/model-contract.md` §4.1.
+
+### Security
+
+- **Editable tax-law JSON (`taxLawJson`) had no cap on array length or
+  object key count** (fin-8fb.11 MAJOR, rt-security #2, §4.2). A
+  user-pasted tax-law ruleset with an arbitrarily long slab/surcharge array
+  inflated iteration cost on `slabTaxBeforeCess`, a hot path called once per
+  Monte Carlo sample-year. `sanitizeTaxLaw`'s slab arrays (`newRegimeSlabs`
+  and each old-regime band) are now capped at 64 entries, `surchargeBands`
+  at 32 entries, `productTaxRules` at 64 processed keys per call, and its
+  free-text fields (`version`, `source`, `sourceUrl`, `updatedOn`,
+  `debtMfTaxation`, `notes`) at 2000 characters. These caps sit far above
+  any real ruleset (`DEFAULT_TAX_LAW`'s largest array is 7 entries) and do
+  not change behavior for a legitimate tax-law edit. See
+  `docs/developer/model-contract.md` §3.3.
+
 ## [1.0.0] - 2026-05-25
 
 ### Added
