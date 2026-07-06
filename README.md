@@ -47,6 +47,11 @@ This tool is not a tax filing product, not investment advice, and not a substitu
 - **Joint-life household modelling** — longevity is derived from last-survivor basis (max of retiree and spouse age-to-90); household spend, pension/rental income floor, healthcare reserve, and dependant need are modelled explicitly.
 - **Indian tax law scope (FY 2025-26 / AY 2026-27, Finance Act 2025)** — seven-band new-regime slabs, §87A ₹12L rebate with marginal relief, surcharge with marginal relief at ₹50L/₹1Cr/₹2Cr/₹5Cr thresholds, LTCG/STCG special rates per Finance Acts 2024 and 2025, §80TTB senior deposit deduction (old regime). Ruleset is editable and version-tagged.
 - **Sensitivity heatmap and scenario library** — return × withdrawal rate heatmap shows corpus outcomes in today's rupees; built-in standard stress cases (income-floor, market-crash, high-inflation, spouse-longevity, healthcare-reserve).
+- **Dynamic withdrawal rules** — beyond the default fixed, inflation-indexed cash target, choose Guardrails (a simplified Guyton-Klinger rule: cut or raise spending ±10% when the withdrawal rate drifts ±20% from the year-one rate, with an inflation hold after a down year) or % of corpus (recomputes the yearly target as a fixed share of opening corpus), each with an optional spending floor.
+- **Multi-goal planner** — plan up to 10 named one-time lump-sum goals (a car, wedding, renovation) each with its own amount, year, and inflation setting; a previously saved single planned lump sum migrates into this editor automatically.
+- **Historical Backtest Lab** — replay every rolling cohort of bundled, approximate India market history (FY1990-91 through FY2024-25) through the live cash engine for a deterministic, no-seed reality check alongside Monte Carlo, reporting success rate, worst/best cohort, and P10/P50/P90 bands.
+- **Automatic capital-loss carry-forward** — §74 capital losses realised during the projection window now carry forward automatically for up to 8 assessment years and apply against future gains (short-term first, then long-term) inside the SWP and Interest engines.
+- **Opt-in tax-aware rebalancing** — when enabled, the SWP engine's annual equity/debt rebalancing realises capital gains/losses on the selling leg instead of moving value tax-free, netting against the same year's redemptions and the carry-forward pool; off by default.
 - **Adviser / CA Pack export** — one-click export of PDF narrative report, CSV annual/monthly ledger, tax-law rules JSON, and assumptions JSON for professional challenge.
 - **No telemetry** — no outbound network requests, no analytics beacon, no cookies, no backend. All computation is local. Verified by zero matches for `fetch(`, `XMLHttpRequest`, `navigator.sendBeacon`, or `gtag(` anywhere in `src/`.
 - **Privacy-first local persistence** — plan assumptions and scenario snapshots are stored only in browser `localStorage` under six known keys. Clear all data at any time from Help > Local Data & Privacy. See [PRIVACY.md](PRIVACY.md) for the full data inventory.
@@ -66,6 +71,33 @@ No install required.
 7. Review **Tax Studio** for slab computation, SWP FIFO lot trail, and editable tax-law ruleset before trusting the tax number.
 8. Run **Simulations** (Monte Carlo, Scenario Library, Sensitivity Heatmap) to stress-test against sequence risk.
 9. Export the **Adviser / CA Pack** (PDF, CSV, JSON) when a professional needs the full evidence trail.
+
+---
+
+## Verify Your Download
+
+Every GitHub Release ships a `SHA256SUMS` file alongside the HTML artifacts (`index.html`, `app.html`, `Retirement Corpus & Income Planner.html`). Verifying the checksum before you open a downloaded file confirms it matches exactly what the release workflow built and published — protection against a tampered or corrupted download, not just a courtesy step.
+
+1. Download both the HTML file you want and `SHA256SUMS` from the same [Release](https://github.com/stribog-cloud/retirement-corpus-planner/releases).
+2. Compute the downloaded file's SHA-256 hash and compare it against the matching line in `SHA256SUMS`.
+
+**macOS / Linux:**
+
+```bash
+shasum -a 256 index.html
+# Compare the printed hash against the "index.html" line in SHA256SUMS.
+
+# Or, with all files from the release in the same folder:
+shasum -a 256 -c SHA256SUMS
+```
+
+**Windows (PowerShell or Command Prompt):**
+
+```powershell
+CertUtil -hashfile index.html SHA256
+```
+
+If the computed hash does not match the corresponding line in `SHA256SUMS`, do not open the file — re-download it from the official Releases page and check again before use.
 
 ---
 
@@ -104,7 +136,7 @@ Outputs are planning-grade estimates only — not personalized investment advice
 | **Overview** | Decision cockpit: KPI strip, Trust Center, monthly cash solver, scenario timeline |
 | **Guided Planner** | Retiree Guided Mode: household spend, income floor, healthcare reserve, risk questions, strategy shortlist |
 | **Tax Studio** | Tax profile, SWP FIFO ledger, editable tax-law ruleset, provenance panel |
-| **Simulations** | Monte Carlo, Scenario Library, sensitivity heatmap, scenario lens |
+| **Simulations** | Monte Carlo, Scenario Library, sensitivity heatmap, scenario lens, Historical Backtest Lab (rolling India FY cohorts) |
 | **Ledger** | Adviser / CA Pack, annual/monthly evidence trail, CSV and PDF export |
 | **Assumption Studio** | Full model configuration: corpus, instruments, inflation, return, tax, household |
 | **Help** | Guided tour, context-sensitive help, local data and privacy controls |
@@ -139,4 +171,4 @@ See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ---
 
-*Retirement Corpus & Income Planner · Planning tool · not financial/tax advice · v1.0.0 · MIT · https://github.com/stribog-cloud/retirement-corpus-planner*
+*Retirement Corpus & Income Planner · Planning tool · not financial/tax advice · v2.0.0 · MIT · https://github.com/stribog-cloud/retirement-corpus-planner*

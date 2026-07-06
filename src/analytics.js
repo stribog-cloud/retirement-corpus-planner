@@ -1,5 +1,6 @@
 import {
   calculate,
+  calculateHistoricalBacktest,
   calculateMonteCarlo,
   generateOptimumStrategies,
   normalizeState,
@@ -12,6 +13,10 @@ import {
   solveTopup,
   withdrawalShareNeeded
 } from "./model.js";
+// fin-8fb F4 — Historical Backtest Lab: only the dataset identity is needed
+// here (for the memoization cache key); the array itself is model.js's
+// default argument to calculateHistoricalBacktest.
+import { DATASET_META } from "./data/india-annual-returns.js";
 
 // ─── LRU cache helpers ─────────────────────────────────────────────────────
 // Bounded LRU cache (max 64 entries) keyed by stable input hash.
@@ -72,9 +77,13 @@ const _optimumCache = makeLruCache(64);
 // the paramsHash is unchanged and the cached result is returned immediately,
 // skipping the ~4s re-computation entirely.
 const _mcCache = makeLruCache(16);
+// fin-8fb F4 — Historical Backtest Lab result cache. Same 16-entry bound as
+// MC: each entry holds a handful of cohorts (<=35) plus P10/P50/P90 arrays
+// (years+1 elements each) — far smaller than an MC entry.
+const _backtestCache = makeLruCache(16);
 
 // Exposed for testing
-export const _caches = { corpus: _corpusCache, returnCash: _returnCashCache, maxCash: _maxCashCache, optimum: _optimumCache, mc: _mcCache };
+export const _caches = { corpus: _corpusCache, returnCash: _returnCashCache, maxCash: _maxCashCache, optimum: _optimumCache, mc: _mcCache, backtest: _backtestCache };
 
 // ─── Memoized solver wrappers ──────────────────────────────────────────────
 function memoSolveCorpus(params, paramsHash) {
@@ -115,6 +124,17 @@ function memoCalculateMonteCarlo(params, simulationCount, paramsHash) {
   return _mcCache.set(key, calculateMonteCarlo(params, simulationCount));
 }
 
+// fin-8fb F4 — Historical Backtest Lab: memoized like MC, keyed on paramsHash
+// (covers years, backtestUseHistoricalInflation, and every return/inflation/
+// withdrawal assumption) plus the dataset id, so a future dataset swap or
+// version bump busts the cache even if paramsHash is unchanged.
+function memoCalculateHistoricalBacktest(params, paramsHash) {
+  const key = `${paramsHash}:${DATASET_META.id}`;
+  const cached = _backtestCache.get(key);
+  if (cached !== undefined) return cached;
+  return _backtestCache.set(key, calculateHistoricalBacktest(params));
+}
+
 // ─── Fallback / placeholder helpers ───────────────────────────────────────
 function pendingMonteCarlo(params, model) {
   const path = (model.rows || []).map((row) => row.closing || 0);
@@ -140,6 +160,27 @@ function pendingMonteCarlo(params, model) {
     shockModel: params.shockModel || "regime",
     glidePath: Number(params.glidePathEnabled) === 1 ? "glide path pending" : "fixed allocation",
     method: "Risk analytics updating in the background; exact projection is already refreshed"
+  };
+}
+
+// fin-8fb F4 — Historical Backtest Lab placeholder, in the same spirit as
+// pendingMonteCarlo: reuses the already-computed exact `model` path as an
+// immediate approximation (cohortCount: 0 signals "not yet cohort-computed")
+// so the UI card has something structurally valid to render before the slow
+// bundle's real memoized cohort replay resolves.
+function pendingHistoricalBacktest(params, model) {
+  const horizon = Math.round(Number(params.years) || 0);
+  const targetCorpus = Number(params.targetCorpus) || 0;
+  const closing = model?.final?.closing || 0;
+  const path = (model?.rows || []).map((row) => row.closing || 0);
+  return {
+    cohortCount: 0,
+    horizon,
+    successRate: targetCorpus > 0 ? (closing >= targetCorpus ? 1 : 0) : 1,
+    worst: null,
+    best: null,
+    cohorts: [],
+    percentileBands: { p10: path, p50: path, p90: path }
   };
 }
 
@@ -170,6 +211,7 @@ function buildFallbackAnalytics(state, params, model) {
     maxMonthlyCash: Math.max(0, (safeModel.final?.withdrawal || 0) / 12),
     interestShareForTarget: withdrawalShareNeeded(safeParams),
     optimum: minimalOptimum(normalized),
+    backtest: Number(normalized.backtestEnabled) === 1 ? pendingHistoricalBacktest(safeParams, safeModel) : null,
     durationMs: 0,
     pending: true
   };
@@ -180,8 +222,8 @@ function buildFallbackAnalytics(state, params, model) {
 // Contains: normalizeState, projectionParams, topup, solveReturn,
 //           solveCorpusForMonthlyCash (memoized), solveReturnForMonthlyCash (memoized),
 //           withdrawalShareNeeded.
-// Does NOT contain: calculateMonteCarlo, solveMaxMonthlyCash, generateOptimumStrategies.
-// Those three are served by the slow path.
+// Does NOT contain: calculateMonteCarlo, solveMaxMonthlyCash, generateOptimumStrategies,
+// calculateHistoricalBacktest (fin-8fb F4). Those are served by the slow path.
 function computeFastBundle(state) {
   const started = typeof performance !== "undefined" ? performance.now() : Date.now();
 
@@ -214,7 +256,8 @@ function computeFastBundle(state) {
 
 // ─── Slow analytics bundle (idle/deferred path) ───────────────────────────
 // Runs behind a longer debounce or requestIdleCallback.
-// Contains: calculateMonteCarlo, solveMaxMonthlyCash (memoized), generateOptimumStrategies (memoized).
+// Contains: calculateMonteCarlo, solveMaxMonthlyCash (memoized), generateOptimumStrategies (memoized),
+//           calculateHistoricalBacktest (memoized, fin-8fb F4 — null when backtestEnabled !== 1).
 // Also includes fast-path results so callers can merge without a separate fast call.
 function computeSlowBundle(state) {
   const started = typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -238,6 +281,10 @@ function computeSlowBundle(state) {
   const mc = memoCalculateMonteCarlo(params, normalized.monteCarloSamples, paramsHash);
   const maxMonthlyCash = memoSolveMaxCash(params, paramsHash);
   const optimum = memoGenerateOptimum(normalized, normalizedHash);
+  // fin-8fb F4: skip the cohort replay entirely when the card is disabled.
+  const backtest = Number(normalized.backtestEnabled) === 1
+    ? memoCalculateHistoricalBacktest(params, paramsHash)
+    : null;
 
   const ended = typeof performance !== "undefined" ? performance.now() : Date.now();
   return {
@@ -249,6 +296,7 @@ function computeSlowBundle(state) {
     maxMonthlyCash,
     interestShareForTarget,
     optimum,
+    backtest,
     durationMs: Math.max(0, ended - started),
     pending: false,
     slowPending: false
@@ -278,6 +326,7 @@ function computeAnalyticsBundle(state) {
     maxMonthlyCash: memoSolveMaxCash(params, paramsHash),
     interestShareForTarget: withdrawalShareNeeded(params),
     optimum: memoGenerateOptimum(normalized, normalizedHash),
+    backtest: Number(normalized.backtestEnabled) === 1 ? memoCalculateHistoricalBacktest(params, paramsHash) : null,
     pending: false,
     slowPending: false
   };
@@ -292,6 +341,7 @@ export {
   computeSlowBundle,
   minimalOptimum,
   pendingMonteCarlo,
+  pendingHistoricalBacktest,
   stableJsonHash,
   makeLruCache
 };

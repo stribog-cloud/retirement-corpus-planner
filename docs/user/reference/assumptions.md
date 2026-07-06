@@ -1,12 +1,12 @@
 ---
 title: "Assumption Reference"
 created: 2026-05-12
-updated: 2026-05-16
+updated: 2026-07-06
 type: project/user-doc
 status: published
-version: "2.2.0"
-revision: 9
-last_updated: 2026-05-16
+version: "2.3.0"
+revision: 10
+last_updated: 2026-07-06
 tags: [user-docs, reference, assumptions]
 project: fin-dashboard
 owners: [msambare]
@@ -134,10 +134,27 @@ On phone-sized screens, the app prioritizes verdict, key actions, and review car
 
 ![Mobile overview layout](../assets/mobile-overview.jpg)
 
+## 11. Dynamic Withdrawal, Goals, Rebalancing, And Backtest
+
+| Field | Meaning | Default | Affects |
+|-------|---------|---------|---------|
+| Withdrawal rule | Fixed, Guardrails, or % of corpus | Fixed | How the recurring annual cash need is resolved each year |
+| Guardrail band | How far the withdrawal rate must drift before a Guardrails cut or raise fires | 20% | Guardrails cut/raise trigger |
+| Guardrail adjustment | Size of a Guardrails cut or raise | 10% | Guardrails spending multiplier |
+| % of corpus rate | Percentage of opening corpus recomputed as the yearly target | 5% | % of corpus withdrawal target |
+| Spending floor | Minimum monthly cash (today's rupees) that either dynamic rule will not fall below | ₹0 (no floor) | Guardrails and % of corpus resolved target |
+| Planned lump-sum goals | Up to 10 named one-time goals, each with its own amount, year, and inflation setting | None | Target cash in each goal's own year; replaces the legacy single planned lump sum, which still loads automatically into this list |
+| Tax-aware rebalancing | Whether the SWP engine's annual equity/debt rebalancing realises capital gains/losses on the selling leg | Off | Rebalance tax, realised gain, and the capital-loss carry-forward pool |
+| Backtest lab | Whether the Historical Backtest Lab computes cohort results | On | Simulations Backtest Lab card |
+| Historical rate | Whether the backtest replays each cohort's own historical inflation instead of your assumed rate | Off | Backtest cash targets and real-corpus values |
+
+Capital-loss carry-forward (8-assessment-year FIFO expiry under Section 74) has no toggle — it is always applied inside the SWP and Interest engines once a loss is realised. See [Retirement Tax and Withdrawal Model](../concepts/retirement-tax-and-withdrawal-model.md) for the full explanation of these fields.
+
 ## Revision History
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 2.3.0 | 10 | 2026-07-06 | Added reference entries for withdrawal rule, guardrail band/adjustment, % of corpus rate, spending floor, planned lump-sum goals, tax-aware rebalancing, and backtest fields (v2.0.0); noted always-on capital-loss carry-forward. |
 | 2.2.0 | 9 | 2026-05-16 | Added effective-assumption reconciliation notes for household overrides, export snapshots, and stable percent-withdrawal projections. |
 | 2.1.0 | 8 | 2026-05-16 | Clarified monthly-cash contract: direct edits switch to Monthly target mode; percent mode uses withdrawal percentage as the driver. |
 | 2.0.0 | 7 | 2026-05-15 | Rebuilt assumption reference with core, cash, return, instrument, tax, household, risk, scenario, trust, and mobile sections. |

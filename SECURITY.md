@@ -42,3 +42,4 @@ This project does not offer a bug bounty programme.
 | Version | Date       | Change                                     |
 |---------|------------|--------------------------------------------|
 | 1.0.0   | 2026-05-25 | Initial public security policy for v1.0.0. |
+| 2.0.0   | 2026-07-06 | v2.0.0 release; red-team remediation (CSV formula-injection guard, tax-law input caps, zero-network gate hardening). |

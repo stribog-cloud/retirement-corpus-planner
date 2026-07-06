@@ -167,7 +167,7 @@ async function writeScreenshotManifest(names) {
 }
 
 async function acceptPrivacyForTour(page) {
-  await page.waitForSelector(".privacy-consent-card", { timeout: 8000 });
+  await page.waitForSelector(".disclaimer-notice-card", { timeout: 8000 });
   await page.evaluate(() => {
     const buttons = Array.from(document.getElementsByTagName("button"));
     const accept = buttons.find((button) => /understand/i.test(button.textContent || ""));
@@ -189,6 +189,11 @@ const browser = await puppeteer.launch({
 try {
   await mkdir(outDir, { recursive: true });
   const page = await browser.newPage();
+  // fin-8fb.14 (W-0002): headless Chrome defaults to prefers-color-scheme
+  // light; force dark so documentation screenshots keep matching the
+  // product's existing dark-theme default (see tests/e2e/_browser-helper.mjs
+  // for the full rationale).
+  await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "dark" }]);
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: "networkidle0" });
   await acceptPrivacyForTour(page);
   await screenshot(page, "guided-tour");

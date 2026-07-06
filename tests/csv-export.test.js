@@ -26,8 +26,10 @@ import {
   projectionParamsFromState,
   calculate,
   taxLawFromState,
-  householdPlanProfile
+  householdPlanProfile,
+  calculateHistoricalBacktest
 } from "../src/model.js";
+import { DATASET_META } from "../src/data/india-annual-returns.js";
 import { exportCsvZip, csvCell, csvRow, fmtInr, fmtInt, fmtPct, fmtRatio, DISCLAIMER_URL, SCENARIO_LIBRARY_VERSION } from "../src/exports/csv.js";
 import { PLANNING_VERSION } from "../src/planning.js";
 import { createRequire } from "node:module";
@@ -180,6 +182,21 @@ describe("csvCell — RFC 4180 escaping", () => {
   it("returns empty string for zero (not empty) — zero is a valid number", () => expect(csvCell(0)).toBe("0"));
 });
 
+describe("csvCell — formula injection neutralization (CWE-1236)", () => {
+  it("prefixes a leading '=' formula", () => expect(csvCell('=HYPERLINK("http://x",A1)')).toBe('"\'=HYPERLINK(""http://x"",A1)"'));
+  it("prefixes a leading '@' formula", () => expect(csvCell("@SUM(1)")).toBe("'@SUM(1)"));
+  it("prefixes a leading '+' formula", () => expect(csvCell("+2+3")).toBe("'+2+3"));
+  it("prefixes a non-numeric leading '-' formula", () => expect(csvCell("-cmd|calc")).toBe("'-cmd|calc"));
+  it("prefixes a leading '-HYPERLINK' formula (non-numeric leading -)", () => expect(csvCell("-HYPERLINK(1)")).toBe("'-HYPERLINK(1)"));
+  it("prefixes a leading TAB", () => expect(csvCell("\tTAB")).toBe("'\tTAB"));
+  it("prefixes a leading CR (still RFC 4180-quoted for the embedded \\r)", () => expect(csvCell("\rCR")).toBe('"\'\rCR"'));
+  it("does NOT prefix a plain negative number", () => expect(csvCell(-1500.5)).toBe("-1500.5"));
+  it("does NOT prefix a plain negative number given as a string", () => expect(csvCell("-1500.50")).toBe("-1500.50"));
+  it("does NOT prefix a plain positive number", () => expect(csvCell(42)).toBe("42"));
+  it("does NOT prefix zero", () => expect(csvCell(0)).toBe("0"));
+  it("does NOT prefix an ordinary string not starting with a danger character", () => expect(csvCell("hello")).toBe("hello"));
+});
+
 describe("fmt helpers", () => {
   it("fmtInr: formats normal number to 2dp", () => expect(fmtInr(12345.678)).toBe("12345.68"));
   it("fmtInr: returns empty for NaN", () => expect(fmtInr(NaN)).toBe(""));
@@ -212,7 +229,12 @@ describe("exportCsvZip — R4.9.5i", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort();
+    // fin-8fb.9: backtest.csv is a 7th conditional entry — present whenever
+    // state.backtestEnabled===1 (BASE default) and the cohort replay is
+    // non-empty. The 5-year fixture horizon fits inside the bundled dataset
+    // (35 FY rows), so it is present here.
     expect(names).toEqual([
+      "backtest.csv",
       "metadata.csv",
       "monthly.csv",
       "overview.csv",
@@ -250,9 +272,13 @@ describe("exportCsvZip — R4.9.5i", () => {
     const { rows: scenariosRows } = await parseCsvFromZip(zip, "scenarios.csv");
     expect(scenariosRows).toHaveLength(4);
 
-    // metadata.csv: 22 data rows (key-value pairs; +1 for mc_simulations_per_scenario added in fin-s87 R4.9.5j)
+    // metadata.csv: 27 data rows (22 pre-fin-8fb.9 + 5 new unconditional v2 rows:
+    // withdrawal_rule, rebalance_tax_aware, backtest_enabled,
+    // backtest_use_historical_inflation, goals_count — the default BASE-derived
+    // fixture has withdrawalRule="fixed" and no goals, so no rule-param or
+    // goal_N_* rows are added on top of these 5).
     const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
-    expect(metaRows).toHaveLength(22);
+    expect(metaRows).toHaveLength(27);
   });
 
   // T-03: RFC 4180 — value with comma round-trips correctly
@@ -460,12 +486,15 @@ describe("exportCsvZip — R4.9.5i", () => {
       "report_type_caveat", "sensitive_data_warning",
       "household_mode", "income_mode", "cash_mode",
       "plan_horizon_years", "retiree_age_years",
-      "mc_simulations_per_scenario"   // fin-s87 R4.9.5j: per-scenario MC sample count
+      "mc_simulations_per_scenario",   // fin-s87 R4.9.5j: per-scenario MC sample count
+      // fin-8fb.9: unconditional v2 assumption rows (see buildMetadataCsv)
+      "withdrawal_rule", "rebalance_tax_aware",
+      "backtest_enabled", "backtest_use_historical_inflation", "goals_count"
     ];
     for (const k of expectedKeys) {
       expect(keys, `Expected key "${k}" in metadata.csv`).toContain(k);
     }
-    expect(metaRows).toHaveLength(22);  // +1 for mc_simulations_per_scenario (fin-s87 R4.9.5j)
+    expect(metaRows).toHaveLength(27);  // 22 + 5 unconditional fin-8fb.9 rows
   });
 
   // T-12: fin-kqi columns now populated (R4.9.5j); fin-s87 MC populated for all scenarios
@@ -837,7 +866,9 @@ describe("exportCsvZip — R4.9.5i", () => {
     const arrayBuffer = await blob.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
     const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort();
-    expect(names).toHaveLength(6);
+    // fin-8fb.9: 7 entries — the null analyticsContext path is orthogonal to
+    // backtest.csv inclusion (backtestEnabled defaults on in BASE).
+    expect(names).toHaveLength(7);
 
     // Fingerprints should be empty when planFingerprintFn is absent (null analyticsContext)
     const { rows: scenariosRows } = await parseCsvFromZip(zip, "scenarios.csv");
@@ -1399,5 +1430,426 @@ describe("exportCsvZip — R4.9.5i", () => {
     expect(headers).toContain("mc_p10_final_inr");
     expect(headers).toContain("mc_p50_final_inr");
     expect(headers).toContain("mc_p90_final_inr");
+  });
+});
+
+// ── fin-8fb.9 — v2 exports: guardrails/percentOfCorpus, goals, rebalance, backtest ──
+
+function crashOverrides(rates) {
+  return rates.map((rate) => ({ equityReturn: rate, debtReturn: rate }));
+}
+
+describe("exportCsvZip — fin-8fb.9 yearly.csv v2 columns", () => {
+  // T-F1: fixed-mode defaults — new columns present and carry pass-through
+  // defaults (spendingMultiplier=1/guardrailAction="none" per model-contract.md
+  // §4.1; rebalanceGross/rebalanceTax are undefined outside calculateSwpPlan,
+  // per §3.2's SWP-only scope, so fmtInr renders them as "").
+  it("T-F1: yearly.csv exposes spending_multiplier/guardrail_action/rebalance_* with fixed-mode defaults (interest engine)", async () => {
+    const ctx = makeExportContext({ incomeMode: "interest" });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+
+    const { headers, rows } = await parseCsvFromZip(zip, "yearly.csv");
+    expect(headers).toEqual(expect.arrayContaining([
+      "spending_multiplier", "guardrail_action", "rebalance_gross_inr", "rebalance_tax_inr"
+    ]));
+    const activeRows = rows.filter((r) => r.scenario_marker === "active");
+    expect(activeRows.length).toBeGreaterThan(0);
+    for (const row of activeRows) {
+      expect(parseFloat(row.spending_multiplier)).toBeCloseTo(1, 6);
+      expect(row.guardrail_action).toBe("none");
+      // Interest engine never sets rebalanceGross/rebalanceTax (SWP-only per §3.2).
+      expect(row.rebalance_gross_inr).toBe("");
+      expect(row.rebalance_tax_inr).toBe("");
+    }
+  });
+
+  // T-F2: guardrails engine — reuses the engineered -40% crash fixture from
+  // tests/dynamic-withdrawal.test.jsx (a capital-preservation cut at year 2).
+  // Round-trip-verified against a direct calculate() call on the same params
+  // rather than hand-derived numbers.
+  it("T-F2: yearly.csv reflects an engineered guardrails cut at year 2, matching calculate() directly", async () => {
+    const ctx = makeExportContext({
+      incomeMode: "swp",
+      cashMode: "monthlyTarget",
+      monthlyTarget: 200000,
+      years: 6,
+      allowPrincipalDrawdown: 1,
+      useAssetReturns: 1,
+      equityShare: 60,
+      withdrawalRule: "guardrails",
+      sequenceReturnOverrides: crashOverrides([-40, 8, 8, 8, 8, 8])
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+
+    const expectedModel = calculate(ctx.reportParams);
+    const { rows } = await parseCsvFromZip(zip, "yearly.csv");
+    const activeRows = rows.filter((r) => r.scenario_marker === "active");
+
+    const year1 = activeRows.find((r) => r.year_index === "1");
+    const year2 = activeRows.find((r) => r.year_index === "2");
+    expect(year1.guardrail_action).toBe(expectedModel.rows[1].guardrailAction);
+    expect(year2.guardrail_action).toBe("cut");
+    expect(year2.guardrail_action).toBe(expectedModel.rows[2].guardrailAction);
+    expect(parseFloat(year2.spending_multiplier)).toBeCloseTo(expectedModel.rows[2].spendingMultiplier, 6);
+    expect(parseFloat(year2.spending_multiplier)).toBeCloseTo(0.9, 6);
+  });
+
+  // T-F3: SWP + rebalanceTaxAware=1 with genuine equity/debt drift populates
+  // rebalance_gross_inr/rebalance_tax_inr for at least one year, matching
+  // calculate() directly. Control assertion: rebalanceTaxAware=0 keeps both
+  // columns at "0.00" even under the same drift (per §3.2: gross/tax are only
+  // set on the tax-aware branch — the tax-free path always zero-results).
+  it("T-F3: yearly.csv populates rebalance_gross_inr/rebalance_tax_inr under tax-aware rebalancing, zero otherwise", async () => {
+    const drift = {
+      incomeMode: "swp",
+      cashMode: "monthlyTarget",
+      monthlyTarget: 50000,
+      years: 4,
+      allowPrincipalDrawdown: 1,
+      useAssetReturns: 1,
+      equityShare: 50,
+      equityReturn: 22,
+      debtReturn: 5
+    };
+
+    const taxAwareCtx = makeExportContext({ ...drift, rebalanceTaxAware: 1 });
+    const taxAwareAnalyticsCtx = makeAnalyticsContext(taxAwareCtx);
+    const { blob: taxAwareBlob } = await exportCsvZip(taxAwareCtx, taxAwareAnalyticsCtx);
+    const taxAwareZip = await JSZip.loadAsync(await taxAwareBlob.arrayBuffer());
+    const expectedTaxAwareModel = calculate(taxAwareCtx.reportParams);
+    const { rows: taxAwareRows } = await parseCsvFromZip(taxAwareZip, "yearly.csv");
+    const taxAwareActive = taxAwareRows.filter((r) => r.scenario_marker === "active");
+
+    for (const row of taxAwareActive) {
+      const yr = parseInt(row.year_index, 10);
+      expect(parseFloat(row.rebalance_gross_inr)).toBeCloseTo(expectedTaxAwareModel.rows[yr].rebalanceGross, 2);
+      expect(parseFloat(row.rebalance_tax_inr)).toBeCloseTo(expectedTaxAwareModel.rows[yr].rebalanceTax, 2);
+    }
+    const someNonZeroGross = taxAwareActive.some((row) => parseFloat(row.rebalance_gross_inr) > 0);
+    expect(someNonZeroGross).toBe(true);
+
+    const taxFreeCtx = makeExportContext({ ...drift, rebalanceTaxAware: 0 });
+    const taxFreeAnalyticsCtx = makeAnalyticsContext(taxFreeCtx);
+    const { blob: taxFreeBlob } = await exportCsvZip(taxFreeCtx, taxFreeAnalyticsCtx);
+    const taxFreeZip = await JSZip.loadAsync(await taxFreeBlob.arrayBuffer());
+    const { rows: taxFreeRows } = await parseCsvFromZip(taxFreeZip, "yearly.csv");
+    const taxFreeActive = taxFreeRows.filter((r) => r.scenario_marker === "active");
+    for (const row of taxFreeActive) {
+      expect(parseFloat(row.rebalance_gross_inr)).toBeCloseTo(0, 6);
+      expect(parseFloat(row.rebalance_tax_inr)).toBeCloseTo(0, 6);
+    }
+  });
+});
+
+describe("exportCsvZip — fin-8fb.9 metadata.csv assumptions (withdrawal rule / rebalance / backtest flags / goals)", () => {
+  // T-G1: fixed rule (default) — no rule-param rows, no floor row.
+  it("T-G1: fixed rule emits withdrawal_rule but no guardrail/percentOfCorpus/floor param rows", async () => {
+    const ctx = makeExportContext(); // withdrawalRule defaults to "fixed"
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const keys = metaRows.map((r) => r.key);
+
+    expect(metaRows.find((r) => r.key === "withdrawal_rule").value).toBe("fixed");
+    for (const k of ["guardrail_band_pct", "guardrail_adjust_pct", "percent_of_corpus_rate_pct", "spending_floor_monthly_inr"]) {
+      expect(keys, `"${k}" should be absent in fixed mode`).not.toContain(k);
+    }
+  });
+
+  // T-G2: guardrails rule — emits its own params + floor, but not percentOfCorpus's.
+  it("T-G2: guardrails rule emits guardrail_band_pct/guardrail_adjust_pct/spending_floor_monthly_inr, not percent_of_corpus_rate_pct", async () => {
+    const ctx = makeExportContext({
+      withdrawalRule: "guardrails",
+      guardrailBandPct: 15,
+      guardrailAdjustPct: 8,
+      spendingFloorMonthly: 25000
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const byKey = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+
+    expect(byKey.withdrawal_rule).toBe("guardrails");
+    expect(parseFloat(byKey.guardrail_band_pct)).toBeCloseTo(15, 4);
+    expect(parseFloat(byKey.guardrail_adjust_pct)).toBeCloseTo(8, 4);
+    expect(parseFloat(byKey.spending_floor_monthly_inr)).toBeCloseTo(25000, 2);
+    expect(byKey.percent_of_corpus_rate_pct).toBeUndefined();
+  });
+
+  // T-G3: percentOfCorpus rule — emits its own param + floor, not guardrails'.
+  it("T-G3: percentOfCorpus rule emits percent_of_corpus_rate_pct/spending_floor_monthly_inr, not guardrail_* rows", async () => {
+    const ctx = makeExportContext({
+      withdrawalRule: "percentOfCorpus",
+      percentOfCorpusRate: 4,
+      spendingFloorMonthly: 30000
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const byKey = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+
+    expect(byKey.withdrawal_rule).toBe("percentOfCorpus");
+    expect(parseFloat(byKey.percent_of_corpus_rate_pct)).toBeCloseTo(4, 4);
+    expect(parseFloat(byKey.spending_floor_monthly_inr)).toBeCloseTo(30000, 2);
+    expect(byKey.guardrail_band_pct).toBeUndefined();
+    expect(byKey.guardrail_adjust_pct).toBeUndefined();
+  });
+
+  // T-G4: rebalance_tax_aware flag reflects state.
+  it("T-G4: rebalance_tax_aware reflects reportState.rebalanceTaxAware", async () => {
+    const ctx = makeExportContext({ rebalanceTaxAware: 1 });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    expect(metaRows.find((r) => r.key === "rebalance_tax_aware").value).toBe("1");
+  });
+
+  // T-G5: goals — one-line-per-goal, RFC 4180-safe for a name with a comma and a quote.
+  it("T-G5: household-mode goals render one row per field per goal, RFC 4180-escaped", async () => {
+    const ctx = makeExportContext({
+      useHouseholdPlan: 1,
+      plannedLumpSums: [
+        { name: "Kid's college, 2035", amount: 2500000, year: 9, inflate: 1 },
+        { name: 'Home renovation "phase 2"', amount: 800000, year: 3, inflate: 0 }
+      ]
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const byKey = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+
+    expect(byKey.goals_count).toBe("2");
+    expect(byKey.goal_1_name).toBe("Kid's college, 2035");
+    expect(parseFloat(byKey.goal_1_amount_inr)).toBeCloseTo(2500000, 2);
+    expect(byKey.goal_1_year).toBe("9");
+    expect(byKey.goal_1_inflation_indexed).toBe("1");
+    expect(byKey.goal_2_name).toBe('Home renovation "phase 2"');
+    expect(parseFloat(byKey.goal_2_amount_inr)).toBeCloseTo(800000, 2);
+    expect(byKey.goal_2_year).toBe("3");
+    expect(byKey.goal_2_inflation_indexed).toBe("0");
+  });
+
+  // T-G6: no goals configured — goals_count=0, no goal_N_* rows at all.
+  it("T-G6: no planned goals emits goals_count=0 and no goal_N_* rows", async () => {
+    const ctx = makeExportContext({ useHouseholdPlan: 1, plannedLumpSums: [] });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const keys = metaRows.map((r) => r.key);
+
+    expect(metaRows.find((r) => r.key === "goals_count").value).toBe("0");
+    expect(keys.some((k) => k.startsWith("goal_"))).toBe(false);
+  });
+
+  // T-G7: goals are household-scoped — plannedLumpSums set but useHouseholdPlan
+  // off means householdPlanProfile resolves plannedLumpSums to [] (per
+  // model-contract.md §4.2 scoping), so no goal_N_* rows appear.
+  it("T-G7: plannedLumpSums without useHouseholdPlan produces no goal_N_* rows", async () => {
+    const ctx = makeExportContext({
+      useHouseholdPlan: 0,
+      plannedLumpSums: [{ name: "Should not appear", amount: 100000, year: 2, inflate: 0 }]
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const keys = metaRows.map((r) => r.key);
+
+    expect(metaRows.find((r) => r.key === "goals_count").value).toBe("0");
+    expect(keys.some((k) => k.startsWith("goal_"))).toBe(false);
+  });
+
+  // T-G8: a non-normalized/malformed reportState (withdrawalRule missing
+  // entirely) falls back to "fixed" — defense-in-depth for callers that pass
+  // a raw, non-normalizeState()-derived reportState.
+  it("T-G8: reportState.withdrawalRule missing falls back to \"fixed\"", async () => {
+    const ctx = makeExportContext();
+    ctx.reportState = { ...ctx.reportState, withdrawalRule: undefined };
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    expect(metaRows.find((r) => r.key === "withdrawal_rule").value).toBe("fixed");
+  });
+
+  // T-G9: guardrails/percentOfCorpus params at exactly 0 are genuine values
+  // (band/adjust/rate disabled, no floor) — exercises the `Number(...) || 0`
+  // fallback's right-hand branch via a legitimately-zero input, not just a
+  // missing field.
+  it("T-G9: guardrail_band_pct/guardrail_adjust_pct/spending_floor_monthly_inr render \"0\" for zero-valued params", async () => {
+    const ctx = makeExportContext({
+      withdrawalRule: "guardrails",
+      guardrailBandPct: 0,
+      guardrailAdjustPct: 0,
+      spendingFloorMonthly: 0
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const byKey = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+
+    expect(parseFloat(byKey.guardrail_band_pct)).toBeCloseTo(0, 6);
+    expect(parseFloat(byKey.guardrail_adjust_pct)).toBeCloseTo(0, 6);
+    expect(parseFloat(byKey.spending_floor_monthly_inr)).toBeCloseTo(0, 6);
+  });
+
+  // T-G10: same zero-valued-params exercise for percentOfCorpus's own rate.
+  it("T-G10: percent_of_corpus_rate_pct/spending_floor_monthly_inr render \"0\" for zero-valued params", async () => {
+    const ctx = makeExportContext({
+      withdrawalRule: "percentOfCorpus",
+      percentOfCorpusRate: 0,
+      spendingFloorMonthly: 0
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const byKey = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+
+    expect(parseFloat(byKey.percent_of_corpus_rate_pct)).toBeCloseTo(0, 6);
+    expect(parseFloat(byKey.spending_floor_monthly_inr)).toBeCloseTo(0, 6);
+  });
+
+  // T-G11: backtest_use_historical_inflation=1 — the only other test coverage
+  // of this flag (T-G4-adjacent) uses the field's off/default state.
+  it("T-G11: backtest_use_historical_inflation reflects reportState when set to 1", async () => {
+    const ctx = makeExportContext({ backtestUseHistoricalInflation: 1 });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    expect(metaRows.find((r) => r.key === "backtest_use_historical_inflation").value).toBe("1");
+  });
+
+  // T-G12: a goal with an empty/missing name exercises the `goal.name || ""`
+  // fallback (sanitizePlannedLumpSums allows an empty-string name).
+  it("T-G12: a goal with an empty name renders an empty goal_N_name value, not \"undefined\"", async () => {
+    const ctx = makeExportContext({
+      useHouseholdPlan: 1,
+      plannedLumpSums: [{ amount: 500000, year: 4, inflate: 0 }] // no name field at all
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const byKey = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+    expect(byKey.goal_1_name).toBe("");
+  });
+
+  // T-G13: reportHousehold missing plannedLumpSums entirely (malformed/legacy
+  // caller) falls back to zero goals rather than throwing.
+  it("T-G13: reportHousehold without a plannedLumpSums key produces goals_count=0", async () => {
+    const ctx = makeExportContext();
+    const { plannedLumpSums, ...rest } = ctx.reportHousehold;
+    ctx.reportHousehold = rest;
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    expect(metaRows.find((r) => r.key === "goals_count").value).toBe("0");
+  });
+
+  // T-G14 (CWE-1236): a goal name that looks like a spreadsheet formula must
+  // be neutralized with a leading single-quote when it reaches metadata.csv —
+  // goal names are unauthenticated user free text (≤40 chars).
+  it("T-G14: a formula-shaped goal name is neutralized with a leading single-quote in metadata.csv", async () => {
+    const ctx = makeExportContext({
+      useHouseholdPlan: 1,
+      plannedLumpSums: [{ name: '=HYPERLINK("http://evil",A1)', amount: 100000, year: 2, inflate: 0 }]
+    });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const { rows: metaRows } = await parseCsvFromZip(zip, "metadata.csv");
+    const byKey = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+    expect(byKey.goal_1_name.startsWith("'")).toBe(true);
+    expect(byKey.goal_1_name).toBe('\'=HYPERLINK("http://evil",A1)');
+  });
+});
+
+describe("exportCsvZip — fin-8fb.9 backtest.csv (Historical Backtest Lab)", () => {
+  // T-H1: enabled + in-range horizon — sheet present with summary numbers
+  // tied to a direct calculateHistoricalBacktest(reportParams) call.
+  it("T-H1: backtest.csv present with summary rows matching calculateHistoricalBacktest directly", async () => {
+    const ctx = makeExportContext({ backtestEnabled: 1, years: 10 });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+    expect(names).toContain("backtest.csv");
+
+    const expected = calculateHistoricalBacktest(ctx.reportParams);
+    expect(expected.cohortCount).toBeGreaterThan(0);
+
+    const text = await zip.file("backtest.csv").async("text");
+    const parsed = parseCsv(text);
+    // parseCsv() (module helper above) skips blank lines, so the blank
+    // separator between the summary block and the cohort table is not a
+    // row here — locate the cohort header directly instead.
+    const cohortHeaderIdx = parsed.findIndex((r) => r[0] === "start_fy");
+    const summaryRows = parsed.slice(1, cohortHeaderIdx);
+    const byKey = Object.fromEntries(summaryRows.map((r) => [r[0], r[1]]));
+
+    expect(byKey.dataset_id).toBe(DATASET_META.id);
+    expect(byKey.dataset_first_fy).toBe(DATASET_META.firstFy);
+    expect(byKey.dataset_last_fy).toBe(DATASET_META.lastFy);
+    expect(parseInt(byKey.cohort_count, 10)).toBe(expected.cohortCount);
+    expect(parseInt(byKey.horizon_years, 10)).toBe(expected.horizon);
+    expect(parseFloat(byKey.success_rate)).toBeCloseTo(expected.successRate, 6);
+    expect(byKey.worst_start_fy).toBe(expected.worst.startFy);
+    expect(parseFloat(byKey.worst_ending_corpus_inr)).toBeCloseTo(expected.worst.endingCorpus, 2);
+    expect(byKey.best_start_fy).toBe(expected.best.startFy);
+    expect(parseFloat(byKey.best_ending_corpus_inr)).toBeCloseTo(expected.best.endingCorpus, 2);
+
+    // Per-cohort table: header line found after the blank separator, then
+    // exactly cohortCount data rows, matching expected.cohorts 1:1 by startFy.
+    expect(cohortHeaderIdx).toBeGreaterThan(0);
+    const cohortRows = parsed.slice(cohortHeaderIdx + 1);
+    expect(cohortRows).toHaveLength(expected.cohortCount);
+    expected.cohorts.forEach((c, i) => {
+      expect(cohortRows[i][0]).toBe(c.startFy);
+      expect(parseFloat(cohortRows[i][1])).toBeCloseTo(c.endingCorpus, 2);
+      expect(parseFloat(cohortRows[i][2])).toBeCloseTo(c.realEndingCorpus, 2);
+      expect(cohortRows[i][3]).toBe(c.depleted ? "1" : "0");
+      expect(cohortRows[i][4]).toBe(c.depletionYear != null ? String(c.depletionYear) : "");
+    });
+  });
+
+  // T-H2: disabled — no backtest.csv entry at all.
+  it("T-H2: backtestEnabled=0 omits backtest.csv entirely", async () => {
+    const ctx = makeExportContext({ backtestEnabled: 0, years: 10 });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+    expect(names).not.toContain("backtest.csv");
+  });
+
+  // T-H3: enabled but horizon longer than the bundled dataset — zero-cohort
+  // shape is documented (model-contract.md §5.1) but not useful evidence, so
+  // the sheet is omitted rather than shipped empty.
+  it("T-H3: backtestEnabled=1 with a horizon longer than the dataset omits backtest.csv", async () => {
+    const ctx = makeExportContext({ backtestEnabled: 1, years: DATASET_META.count + 5 });
+    const analyticsCtx = makeAnalyticsContext(ctx);
+    const { blob } = await exportCsvZip(ctx, analyticsCtx);
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+    expect(names).not.toContain("backtest.csv");
   });
 });

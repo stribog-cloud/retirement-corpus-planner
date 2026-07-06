@@ -359,13 +359,15 @@ try {
 
   console.log("\n── Axis (s): Structural invariants CSV-S-01..07 ──");
 
-  // CSV-S-01: ZIP contains exactly 6 entries with exact names
+  // CSV-S-01: ZIP contains exactly 7 entries with exact names
+  // (v2.0 fin-8fb.9: backtest.csv ships whenever the Backtest Lab is
+  // enabled — BASE default — and the horizon fits the bundled dataset.)
   const expectedEntries = [
-    "metadata.csv", "monthly.csv", "overview.csv",
+    "backtest.csv", "metadata.csv", "monthly.csv", "overview.csv",
     "scenarios.csv", "tax.csv", "yearly.csv"
   ].sort();
-  check("s", "CSV-S-01: ZIP contains exactly 6 entries",
-    zipEntries.length === 6,
+  check("s", "CSV-S-01: ZIP contains exactly 7 entries",
+    zipEntries.length === 7,
     `entries=${JSON.stringify(zipEntries)}`);
   check("s", "CSV-S-01: ZIP entry names match schema exactly",
     JSON.stringify(zipEntries) === JSON.stringify(expectedEntries),
@@ -418,12 +420,16 @@ try {
     JSON.stringify(scenarioKeys) === JSON.stringify(["active", "growth", "income", "stress"]),
     `keys=${JSON.stringify(scenarioKeys)}`);
 
-  // CSV-S-07: metadata.csv has header + ~21 key-value rows
+  // CSV-S-07: metadata.csv has header + key-value rows. v2.0 (fin-8fb) added
+  // the dynamic-withdrawal-rule, tax-aware-rebalance, backtest-flag, and
+  // one-line-per-goal rows, so a default plan now emits ~27 rows and up to
+  // ~72 with the full 10-goal cap. The range is a malformation guard, not a
+  // fixed count.
   check("s", "CSV-S-07: metadata.csv header present",
     metadataHeaders.length === 2 && metadataHeaders[0] === "key" && metadataHeaders[1] === "value",
     `headers=${JSON.stringify(metadataHeaders)}`);
-  check("s", "CSV-S-07a: metadata.csv has ~21 key-value rows (18–24 range accepted)",
-    metadataRows.length >= 18 && metadataRows.length <= 24,
+  check("s", "CSV-S-07a: metadata.csv has key-value rows (24–80 range accepted)",
+    metadataRows.length >= 24 && metadataRows.length <= 80,
     `actual=${metadataRows.length}`);
 
   // ── Axis (r): Cross-sheet reconciliation CSV-RI-01..07 ────────────────────

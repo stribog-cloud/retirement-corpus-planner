@@ -1,12 +1,12 @@
 ---
 title: "Retirement Planner Troubleshooting"
 created: 2026-05-12
-updated: 2026-05-18
+updated: 2026-07-06
 type: project/user-doc
 status: published
-version: "2.1.1"
-revision: 10
-last_updated: 2026-05-18
+version: "2.2.0"
+revision: 11
+last_updated: 2026-07-06
 tags: [user-docs, troubleshooting]
 project: fin-dashboard
 owners: [msambare]
@@ -92,11 +92,21 @@ The review pack should contain PDF, CSV, tax-law JSON, assumptions JSON, scenari
 
 Treat End Target Chance as a sensitivity result. Review sample count, seed, 95% band, P10/P50/P90 paths, target basis, and cash engine. For close decisions, increase samples and use professional review.
 
-## 11. Saved Data Needs Clearing
+## 11. Backtest Lab Shows No Cohorts
+
+Expected behaviour: the Historical Backtest Lab needs at least as many dataset years as your projection horizon. The bundled dataset covers 35 fiscal years (FY1990-91 through FY2024-25), so a horizon longer than 35 years produces zero cohorts by design, and the empty state names the longest horizon the current dataset can still test.
+
+Diagnostics:
+
+1. Check your Projection years assumption against the dataset window shown in the empty-state message or Backtest Lab help.
+2. Reduce the horizon, or accept that only Monte Carlo risk paths are available for a horizon longer than the dataset.
+3. If cohorts are still zero at a supported horizon, create a support report with the horizon, the dataset window shown, and a screenshot.
+
+## 12. Saved Data Needs Clearing
 
 Open Help > Local Data & Privacy > Clear saved data. This removes known browser-storage keys and resets the app to defaults. It does not delete downloaded files.
 
-## 12. Escalation
+## 13. Escalation
 
 Use [Support Map](support.md) when these steps do not resolve the issue.
 
@@ -104,6 +114,7 @@ Use [Support Map](support.md) when these steps do not resolve the issue.
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 2.2.0 | 11 | 2026-07-06 | Added a Backtest Lab empty-state troubleshooting row for when the projection horizon exceeds the bundled dataset window (v2.0.0); renumbered subsequent sections. |
 | 2.1.1 | 10 | 2026-05-18 | Replaced maintainer-only bug-report language with public-user support report guidance. |
 | 2.1.0 | 9 | 2026-05-16 | Added diagnostics for the monthly-cash driver contract and percent-mode benchmark behavior. |
 | 2.0.0 | 8 | 2026-05-15 | Rebuilt troubleshooting into symptom-based diagnostics for blank page, stale numbers, latency, focus, heatmap, monthly target, exports, scenarios, review pack, risk, and saved data. |

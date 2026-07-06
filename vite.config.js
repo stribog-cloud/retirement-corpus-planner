@@ -29,7 +29,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json", "html"],
       all: true,
-      include: ["src/main.jsx", "src/model.js", "src/persistence.js", "src/planning.js", "src/probability-display.js", "src/scenario-library.js", "src/analytics.js", "src/workers/analytics-worker.js", "src/exports/csv.js", "src/exports/pdf-report.js", "src/echarts-custom.js"],
+      include: ["src/data/india-annual-returns.js", "src/main.jsx", "src/model.js", "src/persistence.js", "src/planning.js", "src/probability-display.js", "src/scenario-library.js", "src/analytics.js", "src/workers/analytics-worker.js", "src/exports/csv.js", "src/exports/pdf-report.js", "src/echarts-custom.js"],
       thresholds: {
         statements: 96,
         // R4.9 (2026-05-19): branches threshold relaxed 96 → 95 to accommodate

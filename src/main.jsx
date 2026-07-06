@@ -130,6 +130,7 @@ import {
   sampledReturnParams,
   calculateSequencePath,
   calculateMonteCarlo,
+  calculateHistoricalBacktest,
   solveTopup,
   solveReturn,
   planCoversMonthlyCash,
@@ -146,8 +147,12 @@ import {
   ageBandLabel,
   taxProfileLabel,
   instrumentLabel,
-  taxRuleLabel
+  taxRuleLabel,
+  resolveDynamicSpending,
+  sanitizePlannedLumpSums,
+  resolvePlannedLumpSums
 } from "./model.js";
+import { INDIA_ANNUAL_RETURNS, DATASET_META } from "./data/india-annual-returns.js";
 import {
   PLANNING_VERSION,
   INSTRUMENT_CATALOG,
@@ -169,6 +174,18 @@ import {
 } from "./analytics.js";
 import AnalyticsWorker from "./workers/analytics-worker.js?worker&inline";
 import { formatProbabilityForDisplay } from "./probability-display.js";
+
+/**
+ * App build version injected at compile time by Vite's `define` plugin (fin-i65).
+ * Mirrors the guard pattern in src/exports/csv.js so the footer, PDF export, and
+ * CSV export never disagree on the shipped version string (fin-8fb.2 P1).
+ * At build time: resolves to package.json's `version` field (e.g. "1.0.0").
+ * In Vitest (no Vite define pass): falls back to PLANNING_VERSION.
+ */
+// eslint-disable-next-line no-undef
+const _appVersion = (typeof __APP_VERSION__ !== "undefined" && __APP_VERSION__)
+  ? __APP_VERSION__   // eslint-disable-line no-undef
+  : PLANNING_VERSION;
 
 // ── R4.9.5b-2: PercentileSparkline helpers ─────────────────────────────────
 // fin-5g3 — pure SVG sparkline for P10/P50/P90 tiles.
@@ -289,9 +306,40 @@ function loadECharts() {
 }
 /* v8 ignore stop */
 
+// fin-8fb.14 (W-0002): when no explicit theme choice has ever been stored,
+// respect the OS/browser prefers-color-scheme instead of hardcoding dark.
+// Mirrors app.html's inline bootstrap script exactly (parse-then-fallback
+// shape) so React's initial theme state agrees with what the bootstrap
+// script already painted onto <html data-theme> before React mounted.
+// Exported and unit-tested directly (tests/theme-preference.test.jsx) with
+// a mocked window.matchMedia — no DOM mount required.
+function systemPrefersLightTheme() {
+  try {
+    return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+function resolveThemePreference(rawStoredValue) {
+  let stored = "";
+  try {
+    stored = JSON.parse(rawStoredValue || "\"\"");
+  } catch (_) {
+    stored = rawStoredValue;
+  }
+  if (stored === "light" || stored === "dark") return stored;
+  return systemPrefersLightTheme() ? "light" : "dark";
+}
+
 /* v8 ignore start -- UI behavior is covered by Puppeteer smoke/e2e tests. */
 function useTheme() {
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "dark");
+  const [theme, setTheme] = useState(() => {
+    const bootstrapped = document.documentElement.dataset.theme;
+    if (bootstrapped === "light" || bootstrapped === "dark") return bootstrapped;
+    const hasConsent = loadDisclaimerAcknowledged();
+    return resolveThemePreference(hasConsent ? localStorage.getItem(THEME_KEY) : "");
+  });
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -337,6 +385,150 @@ function useDebouncedValue(value, delay = 500) {
     return () => window.clearTimeout(timer);
   }, [value, delay]);
   return debounced;
+}
+
+// ── Dialog focus management (fin-8fb.2 P4) ──────────────────────────────────
+// WCAG 2.4.3 (focus order) + 2.1.2 (no keyboard trap) for the app's aria-modal
+// surfaces: GuidedTour, HelpDrawer, AssumptionDrawer, and the first-launch
+// DisclaimerNotice consent gate. Shared by all four so they gain identical
+// open/trap/restore behaviour instead of four bespoke implementations.
+const MODAL_FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * useModalFocus(open, containerRef, options)
+ *
+ * @param {boolean} open - whether the dialog is currently open/visible.
+ * @param {React.RefObject<HTMLElement>} containerRef - ref to the dialog's
+ *   root DOM node (the element already carrying role="dialog" aria-modal).
+ * @param {object} [options]
+ * @param {React.RefObject<HTMLElement>} [options.initialFocusRef] - element to
+ *   focus on open in place of the first focusable descendant.
+ * @param {boolean} [options.returnFocus=true] - restore focus to the element
+ *   that had it before the dialog opened, once the dialog closes/unmounts.
+ * @param {() => void} [options.onClose] - called when Escape is pressed.
+ *   Omit to make the dialog Escape-proof (used by DisclaimerNotice, where
+ *   dismissal without explicit consent is not allowed).
+ * @param {*} [options.refocusKey] - when this value changes while `open` is
+ *   true, initial focus is re-applied without re-running the open/close
+ *   lifecycle (GuidedTour uses this to refocus its primary action button as
+ *   the active step changes without disturbing the captured pre-tour focus).
+ */
+function useModalFocus(open, containerRef, { initialFocusRef, returnFocus = true, onClose, refocusKey } = {}) {
+  const previouslyFocusedRef = useRef(null);
+
+  const focusInitialTarget = () => {
+    const container = containerRef.current;
+    const target = initialFocusRef?.current || container?.querySelectorAll(MODAL_FOCUSABLE_SELECTOR)[0];
+    // preventScroll avoids fighting GuidedTour's own scrollIntoView/rAF placement.
+    target?.focus?.({ preventScroll: true });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    previouslyFocusedRef.current = document.activeElement;
+    focusInitialTarget();
+    return () => {
+      if (!returnFocus) return;
+      const previous = previouslyFocusedRef.current;
+      if (previous && typeof previous.focus === "function" && document.contains(previous)) {
+        previous.focus({ preventScroll: true });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || refocusKey === undefined) return undefined;
+    focusInitialTarget();
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refocusKey]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const container = containerRef.current;
+    if (!container) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        if (!onClose) return;
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const allFocusable = Array.from(container.querySelectorAll(MODAL_FOCUSABLE_SELECTOR));
+      // Hidden inactive tab panels (e.g. AssumptionDrawer's non-active studio
+      // sections, which stay in the DOM at display:none) still match
+      // MODAL_FOCUSABLE_SELECTOR even though they are not reachable. Filter
+      // to visible elements so Tab-wrap only cycles through what the user
+      // can actually see. jsdom never computes layout (offsetParent is
+      // always null there), so a filtered result of zero elements falls
+      // back to the unfiltered list rather than trapping focus nowhere.
+      const visibleFocusable = allFocusable.filter((el) => el.offsetParent !== null);
+      const focusable = visibleFocusable.length ? visibleFocusable : allFocusable;
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    };
+    container.addEventListener("keydown", handleKeyDown);
+    return () => container.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+}
+
+// ── Debounced localStorage persistence (fin-8fb.2 P5) ───────────────────────
+// Unifies the four copy-pasted 250ms-debounced persist effects that used to
+// live inline in useRetirementDashboard (theme, main state bundle, layout,
+// scenarioHistory). Beyond de-duplication, this closes a real data-loss race:
+// the old effects only wrote on a timer, so an edit followed by a tab close
+// within 250ms was silently lost. flushOnHide guarantees the last pending
+// write survives `pagehide` / tab-hide / unmount.
+function useDebouncedPersist(persistFn, deps, { delay = 250, flushOnHide = true } = {}) {
+  const persistFnRef = useRef(persistFn);
+  persistFnRef.current = persistFn;
+  const timerRef = useRef(null);
+  const pendingRef = useRef(false);
+  const flushRef = useRef(() => {
+    if (!pendingRef.current) return;
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+    pendingRef.current = false;
+    persistFnRef.current();
+  });
+
+  useEffect(() => {
+    pendingRef.current = true;
+    timerRef.current = window.setTimeout(() => {
+      pendingRef.current = false;
+      timerRef.current = null;
+      persistFnRef.current();
+    }, delay);
+    return () => window.clearTimeout(timerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  useEffect(() => {
+    if (!flushOnHide) return undefined;
+    const flush = () => flushRef.current();
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      flush();
+    };
+  }, [flushOnHide]);
+
+  return flushRef.current;
 }
 
 function createAnalyticsWorker() {
@@ -786,6 +978,11 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
   const active = TOUR_STEPS[step] || TOUR_STEPS[0];
   const isLast = step >= TOUR_STEPS.length - 1;
   const [spotlight, setSpotlight] = useState(null);
+  const tourContainerRef = useRef(null);
+  const primaryActionRef = useRef(null);
+  // refocusKey=step: refocus the primary action button as the tour advances,
+  // without disturbing the pre-tour focus captured on initial open.
+  useModalFocus(open, tourContainerRef, { initialFocusRef: primaryActionRef, onClose, refocusKey: step });
   useLayoutEffect(() => {
     if (!open || !active?.selector) {
       clearTourHighlights();
@@ -891,7 +1088,7 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
     if (next?.view) onSwitchView(next.view);
   };
   return (
-    <div className={`guided-tour ${spotlight ? "is-anchored" : "is-fallback"}`} role="dialog" aria-modal="true" aria-label="Guided product tour">
+    <div ref={tourContainerRef} className={`guided-tour ${spotlight ? "is-anchored" : "is-fallback"}`} role="dialog" aria-modal="true" aria-label="Guided product tour">
       <div className="tour-backdrop" onClick={onClose} />
       <div
         className="tour-spotlight"
@@ -949,7 +1146,7 @@ function GuidedTour({ open, step, setStep, onClose, onSwitchView, onOpenHelp, on
           <button type="button" onClick={() => onOpenHelp("tutorial")}><CircleHelp /> Open help</button>
           <button type="button" onClick={onOpenAssumptions}><Settings2 /> Assumption Studio</button>
           <button type="button" onClick={() => go(step - 1)} disabled={step === 0}>Back</button>
-          <button type="button" className="primary-action" onClick={isLast ? () => { onSwitchView("planner"); onClose(); } : () => go(step + 1)}>
+          <button ref={primaryActionRef} type="button" className="primary-action" onClick={isLast ? () => { onSwitchView("planner"); onClose(); } : () => go(step + 1)}>
             {isLast ? "Start planning" : "Next"}
           </button>
         </div>
@@ -1228,6 +1425,14 @@ function TaxLawEditor({ state, setField, openHelp }) {
   // Explicit tax-law commits are not typed input; they should be synchronous writes.
   // Strategy: read the current stored envelope (preserving preset/tableMode/activeView
   // that TaxLawEditor does not own), merge in the new taxLawJson, write back.
+  //
+  // fin-8fb.2 P5 note: this intentionally does NOT call useRetirementDashboard's
+  // shared useDebouncedPersist flush() for the STORAGE_KEY effect. That flush's
+  // persistFn closes over the parent's `state`, but apply()/reset() below call
+  // setField(...) one line above — a same-tick React state update that has not
+  // yet re-rendered when flush would run, so it would still write the OLD
+  // taxLawJson. Reading the current localStorage envelope directly and merging
+  // just this field sidesteps that staleness; the raw-write approach stays.
   const flushTaxLawToStorage = (newTaxLawJson) => {
     try {
       const envelope = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -1556,7 +1761,7 @@ function TrustCenterPanel({ state, effectiveYears, activeTaxLaw, taxLawStatus, m
   );
 }
 
-function ScenarioTimeline({ history, deltas, onSave, onRestore, onDelete, onExport, onImport, onAnnotate, disabled = false }) {
+function ScenarioTimeline({ history, deltas, onSave, onRestore, onDelete, onExport, onImport, onAnnotate, disabled = false, goals = [] }) {
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const importInputRef = useRef(null);
@@ -1573,6 +1778,21 @@ function ScenarioTimeline({ history, deltas, onSave, onRestore, onDelete, onExpo
   return (
     <article className="panel scenario-timeline-panel" aria-label="Saved scenario timeline">
       <PanelHead eyebrow="Plan History" title="Saved Scenario Timeline" note="Name important versions before changing assumptions. Each snapshot stores assumptions, tax-law version, live outputs, and a fingerprint for adviser review." help={null} />
+      {goals.length ? (
+        <div className="goal-marker-strip" aria-label="Planned lump-sum goal markers">
+          {goals.map((goal, index) => (
+            <span
+              key={goal.id ?? `${goal.name || "goal"}-${goal.year}-${index}`}
+              className="goal-marker"
+              title={`${goal.name || "Planned goal"} in year ${goal.year}`}
+              aria-label={`${goal.name || "Planned goal"} in year ${goal.year}`}
+            >
+              <b>{`Y${goal.year}`}</b>
+              <em>{goal.name || "Planned goal"}</em>
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="scenario-save-grid">
         <label>
           <span>Snapshot name</span>
@@ -1705,6 +1925,81 @@ function ScenarioLibrary({ scenarios, onApply, onSave, onExport, onHelp, disable
           </section>
         ))}
       </div>
+    </article>
+  );
+}
+
+// fin-8fb.8 F4 UI — Historical Backtest Lab card. Rolling-cohort counterpart
+// to the Risk Cone's Monte Carlo card, sitting directly below it in the
+// Simulations view. Reads the memoized `backtest` field the slow analytics
+// bundle exposes (src/analytics.js) — null while backtestEnabled !== 1.
+function HistoricalBacktestLab({ state, setField, backtest, analyticsHorizonYears, modelPending, openHelp }) {
+  const backtestOn = Number(state.backtestEnabled) === 1;
+  const maxFeasibleHorizon = DATASET_META.count;
+  // A dataset shorter than the requested horizon always yields the
+  // documented zero-cohort shape (docs/developer/model-contract.md §5.1),
+  // regardless of which analytics tier answers — check this from the
+  // horizon/dataset relationship directly rather than waiting on `backtest`.
+  const horizonTooLong = analyticsHorizonYears <= 0 || analyticsHorizonYears > maxFeasibleHorizon;
+  // fin-8fb.8: analyticsPending is NOT a reliable "real cohorts have
+  // arrived" signal — it clears after the FAST tier settles, but the real
+  // cohort replay is slow-tier only (mirrors the documented
+  // immediateMcSimulations pattern for Monte Carlo above). The fast-tier
+  // fallback's pendingHistoricalBacktest() placeholder always reports
+  // cohortCount: 0 with a *populated* percentileBands (the exact single
+  // model path, repeated for p10/p50/p90); the real zero-cohort result
+  // (horizon exceeds dataset) reports cohortCount: 0 with *empty*
+  // percentileBands arrays. That shape difference is what distinguishes
+  // "still computing" from "genuinely no cohorts" here.
+  const backtestSettled = Boolean(backtest) && !(backtest.cohortCount === 0 && backtest.percentileBands.p10.length > 0);
+  const stillComputing = backtestOn && !horizonTooLong && !backtestSettled;
+  const successDisplay = backtestSettled && backtest.cohortCount > 0 ? formatProbabilityForDisplay(backtest.successRate) : null;
+  const bandsFinalIndex = backtestSettled ? backtest.percentileBands.p10.length - 1 : -1;
+  const finalP10 = bandsFinalIndex >= 0 ? backtest.percentileBands.p10[bandsFinalIndex] : 0;
+  const finalP50 = bandsFinalIndex >= 0 ? backtest.percentileBands.p50[bandsFinalIndex] : 0;
+  const finalP90 = bandsFinalIndex >= 0 ? backtest.percentileBands.p90[bandsFinalIndex] : 0;
+
+  return (
+    <article className={`panel wide backtest-lab ${backtestOn ? "" : "is-off"}`} aria-label="Historical backtest lab">
+      <PanelHead eyebrow="Historical Backtest" title="Backtest Lab" note="Every rolling India FY window replayed through the live cash engine — a deterministic reality check, not a market forecast." help={() => openHelp("historicalBacktest")} />
+      <ChoiceGroup label="Backtest lab" value={state.backtestEnabled} onChange={(value) => setField("backtestEnabled", Number(value), { feedback: { type: "action", id: "risk", message: Number(value) === 1 ? "Backtest lab enabled" : "Backtest lab disabled" } })} options={[
+        { value: 1, label: "Enabled", note: "Replay rolling FY cohorts" },
+        { value: 0, label: "Disabled", note: "Skip the cohort replay" }
+      ]} />
+      {!backtestOn ? (
+        <p className="backtest-note">Turn the backtest lab on to replay every rolling {Math.max(1, analyticsHorizonYears)}-year window of bundled India market history through this plan.</p>
+      ) : horizonTooLong ? (
+        <p className="backtest-note">
+          {analyticsHorizonYears <= 0
+            ? "Set a projection horizon of at least 1 year to run the backtest."
+            : `A ${analyticsHorizonYears}-year horizon exceeds the ${maxFeasibleHorizon}-year dataset window (${DATASET_META.firstFy} to ${DATASET_META.lastFy}). The longest horizon with at least one cohort is ${maxFeasibleHorizon} years.`}
+        </p>
+      ) : stillComputing ? (
+        <AnalyticsPendingNotice modelPending={modelPending} />
+      ) : (
+        <>
+          <div className="risk-assumption-grid">
+            <MiniMetric label="Cohort Success" value={successDisplay ? successDisplay.primary : "—"} note="Share of historical cohorts finishing at or above target — same finish-line definition as Monte Carlo's end-target chance, but replayed against real history instead of random shocks." />
+            <MiniMetric label="Cohorts Tested" value={`${backtest.cohortCount}`} note={`Rolling ${backtest.horizon}-year windows, one starting in every fiscal year the dataset allows.`} />
+            <MiniMetric label="Dataset Window" value={`${DATASET_META.firstFy} to ${DATASET_META.lastFy}`} note={`${DATASET_META.count} years of bundled India fiscal-year history.`} />
+            <MiniMetric label="Worst Cohort" value={backtest.worst ? formatInr(backtest.worst.endingCorpus) : "—"} note={backtest.worst ? `Started FY ${backtest.worst.startFy}${backtest.worst.depletionYear ? ` · depleted in year ${backtest.worst.depletionYear}` : " · never depleted"}` : "No cohorts to compare."} />
+          </div>
+          <div className="metric-row four">
+            <MiniMetric label="P10 (final)" value={formatInr(finalP10)} note="Unlucky historical cohort: 10% of cohorts land here or worse."><PercentileSparkline values={[finalP10, finalP50, finalP90]} /></MiniMetric>
+            <MiniMetric label="P50 (final)" value={formatInr(finalP50)} note="Median historical cohort outcome."><PercentileSparkline values={[finalP10, finalP50, finalP90]} /></MiniMetric>
+            <MiniMetric label="P90 (final)" value={formatInr(finalP90)} note="Lucky historical cohort: 10% of cohorts land here or better."><PercentileSparkline values={[finalP10, finalP50, finalP90]} /></MiniMetric>
+            <MiniMetric label="Best Cohort" value={backtest.best ? formatInr(backtest.best.endingCorpus) : "—"} note={backtest.best ? `Started FY ${backtest.best.startFy}` : "No cohorts to compare."} />
+          </div>
+          <ChoiceGroup label="Inflation replay" value={state.backtestUseHistoricalInflation} onChange={(value) => setField("backtestUseHistoricalInflation", Number(value), { feedback: { type: "action", id: "risk", message: Number(value) === 1 ? "Historical inflation replay enabled" : "Assumed inflation rate restored" } })} options={[
+            { value: 0, label: "Assumed rate", note: "Flat assumed inflation for every cohort" },
+            { value: 1, label: "Historical rate", note: "Each cohort's own per-year inflation, compounded cumulatively" }
+          ]} />
+          <div className="risk-disclosure backtest-disclosure" role="note">
+            <strong>Backtest disclosure</strong>
+            <span>Approximate index-level history; not audited returns. {DATASET_META.count} years of bundled India FY data replayed through the exact same cash engine as the live projection — a planning sensitivity against real historical sequences, not a market forecast. Open Backtest Lab help for the full dataset provenance.</span>
+          </div>
+        </>
+      )}
     </article>
   );
 }
@@ -2056,7 +2351,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
         }
       ],
       category: "metrics",
-      related: ["goals", "monthlyCashSolver", "policy", "corpusFloor", "defensiveCover"]
+      related: ["goals", "plannedGoals", "monthlyCashSolver", "policy", "corpusFloor", "defensiveCover"]
     },
     scenarioLibrary: {
       title: "Scenario Library",
@@ -2233,7 +2528,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
       summary: "Monte Carlo paths now generate year-by-year sequence-of-returns paths and rerun the active cash engine, so bad early returns can change depletion, P10/P50/P90, and end-target chance.",
       steps: ["End Target Chance is the share of sampled paths whose final nominal corpus clears the inflated corpus target.", "Set sample size and seed when you want repeatable risk runs; higher sample sizes are slower but smoother.", "Use equity/debt volatility and correlation when asset-blend mode is active; manual-return mode uses the single annual volatility field.", "SWP, IDCW, and interest modes keep their active cash semantics inside the risk surface.", "Read P10 as the downside case and P50 as the median path, not as guarantees."],
       category: "metrics",
-      related: ["understandingMC", "planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "riskGuardrail", "displayRule"]
+      related: ["understandingMC", "planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "riskGuardrail", "displayRule", "withdrawalRules", "historicalBacktest"]
     },
     sensitivity: {
       title: "Sensitivity Heatmap",
@@ -2315,7 +2610,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
       summary: "The dashboard treats target corpus as today's rupees, inflates it internally to the final year, and then estimates required annual top-up or required return if the plan is short.",
       steps: ["Set target corpus in today's rupees.", "Set monthly cash target.", "Read Corpus Goal and Cash Goal separately.", "Use Gap Solver for top-up or return requirement."],
       category: "metrics",
-      related: ["incomeCover", "closingTheGap", "gapSolver", "gapFramings", "monthlyCashSolver"]
+      related: ["incomeCover", "closingTheGap", "gapSolver", "gapFramings", "monthlyCashSolver", "plannedGoals"]
     },
     optimizer: {
       title: "Recommended Strategy Shortlist",
@@ -2805,7 +3100,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
         "The simulation is not a market forecast — it is a stress-test of your assumptions."
       ],
       category: "concepts",
-      related: ["planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "displayRule", "risk"]
+      related: ["planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "displayRule", "risk", "historicalBacktest"]
     },
     realVsNominal: {
       title: "Real vs Nominal Values",
@@ -2831,7 +3126,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
         "Use the Crash In First Decade scenario in the Scenario Library to specifically test sequence risk."
       ],
       category: "concepts",
-      related: ["understandingMC", "defensiveCover", "scenarioLibrary", "risk", "planEndurance", "scenarioDepletion"]
+      related: ["understandingMC", "defensiveCover", "scenarioLibrary", "risk", "planEndurance", "scenarioDepletion", "historicalBacktest"]
     },
     defensiveCover: {
       title: "Defensive Cover",
@@ -3085,6 +3380,102 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
       ],
       category: "concepts",
       related: ["pdfExport", "fifo", "reviewPack", "trustCenter"]
+    },
+    withdrawalRules: {
+      title: "Dynamic Withdrawal Rules",
+      summary: "Withdrawal rule chooses how the recurring cash need is resolved each year: Fixed keeps today's inflation-indexed target unchanged, Guardrails cuts, raises, or briefly holds spending near the year-one withdrawal rate, and % of corpus recomputes the target from opening corpus every year.",
+      steps: [
+        "Open Model, then Risk & Goals, and choose a withdrawal rule.",
+        "Fixed is the default and is byte-identical to the pre-F2 behaviour: no cuts, raises, or corpus-linked recompute.",
+        "Guardrails cuts spending when the withdrawal rate drifts too far above the year-one rate, raises it when the rate drifts too far below, and otherwise holds last year's inflation escalation flat in a year that follows a market loss.",
+        "% of corpus ignores inflation escalation and instead targets a fixed percentage of opening corpus every year — simpler, but the cash target can swing with the market.",
+        "A spending floor (today's rupees) applies to both dynamic rules so the resolved target never falls below a minimum monthly cash level, even after a cut.",
+        "Planned lump-sum goals are never scaled by a guardrail cut/raise or by % of corpus — they are added on top of the resolved recurring target in their own year, at their own inflation setting."
+      ],
+      sections: [
+        {
+          title: "What Each Rule Does",
+          items: [
+            "Fixed: today's inflation-indexed cash target, unchanged from the pre-F2 model.",
+            "Guardrails: a simplified Guyton-Klinger rule — cut, raise, or hold, bounded to a 0.5x-2x spending multiplier.",
+            "% of corpus: recomputed every year as a chosen percentage of that year's opening corpus; no smoothing, no band, no hold state.",
+            "Spending floor: a today's-rupees minimum monthly cash that both dynamic rules respect, always escalated by true inflation regardless of any cut or hold."
+          ]
+        },
+        {
+          title: "Read This Honestly",
+          items: [
+            "This is a planning-grade simulation of a spending rule, not a guarantee that a retiree will actually follow it in a real bad market.",
+            "Guardrails and % of corpus change how much cash the plan aims for; they do not change tax treatment, product classification, or sequence-of-returns risk elsewhere in the model.",
+            "The Withdrawal Rule line in the insights rail only appears once a dynamic rule is active, and shows the latest cut/raise/hold state and spending multiplier — read it alongside End Target Chance, not instead of it."
+          ]
+        }
+      ],
+      category: "metrics",
+      related: ["risk", "goals", "retirement", "plannedGoals"]
+    },
+    plannedGoals: {
+      title: "Planned Lump-Sum Goals",
+      summary: "Planned lump-sum goals let a household plan up to 10 one-time cash needs — a car, wedding, renovation, or similar — each with its own name, amount, year, and optional inflation indexing.",
+      steps: [
+        "Switch on Use household plan, then open the household tab's Planned lump-sum goals editor.",
+        "Add a goal: name it, set the amount in today's rupees, choose the projection year it lands in, and choose whether it should inflate.",
+        "Remove a goal with its trash-can button, or add more goals up to the cap of 10.",
+        "Each goal is injected into the target cash only in its own selected year, on top of the recurring cash need — goals are never scaled together or by a guardrail cut/raise."
+      ],
+      sections: [
+        {
+          title: "How Goals Resolve",
+          items: [
+            "Goals only fire while Use household plan is on; the editor and its goals are inert in single-target mode.",
+            "An inflate-enabled goal escalates by the same inflation factor as the recurring cash need; a fixed goal keeps its entered amount at face value in its landing year.",
+            "Invalid entries are cleaned up automatically: names are capped at 40 characters, a negative or non-numeric amount is dropped, and an out-of-range year is pulled back into the supported 1-80 year horizon rather than silently ignored.",
+            "Saved scenario snapshots, CSV/PDF exports, and the review pack all read from the same resolved goals array, so a goal added here appears consistently everywhere."
+          ]
+        }
+      ],
+      category: "metrics",
+      related: ["household", "goals", "withdrawalRules"]
+    },
+    historicalBacktest: {
+      title: "Historical Backtest Lab",
+      summary: "The backtest lab replays every rolling window of bundled India market history through the same live cash engine Monte Carlo uses, instead of randomly sampled returns. Each cohort starts in a different real fiscal year and lives through the actual sequence of returns and inflation that followed it.",
+      steps: [
+        "A cohort is one rolling window: for a 30-year plan, the first cohort starts FY1990-91 and runs its actual 30-year return sequence; the next starts FY1991-92, and so on, until the window no longer fits inside the dataset.",
+        "Cohort success uses the exact same finish line as Monte Carlo: the cohort's final closing corpus must be at or above your target corpus, nothing more.",
+        "Worst and best cohort callouts name the actual starting fiscal year and ending corpus, plus whether that cohort's corpus ever hit zero and in which year.",
+        "P10/P50/P90 bands summarise the final-year corpus across every cohort tested, read the same way as the Monte Carlo risk cone.",
+        "Turn on Historical rate to replace the flat assumed inflation with each cohort's own per-year inflation history, compounding cumulatively year over year instead of using a blended average.",
+        "The lab needs at least as many dataset years as your projection horizon; a horizon longer than the dataset produces zero cohorts and a message naming the longest horizon that still works."
+      ],
+      sections: [
+        {
+          title: "How This Differs From Monte Carlo",
+          items: [
+            "Monte Carlo samples random year-by-year shocks from a volatility and shock-model assumption; the backtest replays real recorded fiscal years, with no randomness at all.",
+            "Both use the identical override plumbing and the identical success definition, so the two numbers are directly comparable — Monte Carlo asks 'across many imagined futures,' the backtest asks 'across every real window this specific history contains.'",
+            "The backtest is deterministic: the same plan and dataset always produce the same cohort results, with no seed or sample-size setting."
+          ]
+        },
+        {
+          title: "Dataset Provenance",
+          items: [
+            "The bundled dataset covers India fiscal years FY1990-91 through FY2024-25 (35 years): BSE Sensex fiscal-year returns for equity, an RBI 10-year G-sec-based accrual proxy for debt, and MOSPI CPI-IW/CPI-Combined figures for inflation.",
+            "Equity and debt figures are approximations, not audited total-return indices — see the dataset's own derivation notes for the exact construction method and known limitations.",
+            "The lab always reports the active dataset's fiscal-year window and cohort count, so you can see exactly how much history backs the current result."
+          ]
+        },
+        {
+          title: "Read This Honestly",
+          items: [
+            "This is a planning-grade sensitivity against one specific, approximate history — not audited performance data, and not a guarantee that the future will resemble any single cohort shown here.",
+            "A small number of cohorts (a long horizon against a 35-year dataset) means each cohort swings the success rate by a large step; treat the result as a reality check, not a statistically smooth probability.",
+            "Use the backtest alongside Monte Carlo, not instead of it — Monte Carlo explores many hypothetical futures, the backtest grounds the plan in what India markets actually did."
+          ]
+        }
+      ],
+      category: "metrics",
+      related: ["risk", "understandingMC", "sequenceOfReturns", "monteCarloUncertainty", "planEndurance", "targetConfidence"]
     }
   };
 }
@@ -3120,6 +3511,7 @@ function HelpDrawer({ open, topic, onClose, onStartTour, onClearSavedData, activ
     setExpandedTopic(null);
     scrollHelpReaderIntoView("auto");
   }, [open, topic]);
+  useModalFocus(open, drawerRef, { onClose });
   const active = topics[readerTopic] || topics.core;
   const coachCards = [
     { title: "I am starting fresh", detail: "Use the guided retirement path first.", topic: "coach" },
@@ -3265,9 +3657,17 @@ function HelpDrawer({ open, topic, onClose, onStartTour, onClearSavedData, activ
 }
 
 function DisclaimerNotice({ open, onAccept, onClear, onHelp }) {
+  const noticeRef = useRef(null);
+  const primaryActionRef = useRef(null);
+  // fin-8fb.2 P4: this first-launch consent gate blocks the rest of the app
+  // (see src/styles.css .disclaimer-notice-card) exactly like the other three
+  // aria-modal surfaces, but had never been marked as a dialog and had zero
+  // focus management. No `onClose` is passed to useModalFocus — Escape must
+  // not dismiss a consent gate; only the explicit "I understand" action can.
+  useModalFocus(open, noticeRef, { initialFocusRef: primaryActionRef });
   if (!open) return null;
   return (
-    <section className="disclaimer-notice-card" role="region" aria-label="Important notice">
+    <section ref={noticeRef} className="disclaimer-notice-card" role="dialog" aria-modal="true" aria-label="Important notice">
       <div className="privacy-consent-icon" aria-hidden="true"><ShieldCheck /></div>
       <div className="privacy-consent-copy disclaimer-notice-copy">
         <span>Important Notice</span>
@@ -3295,15 +3695,73 @@ function DisclaimerNotice({ open, onAccept, onClear, onHelp }) {
       <div className="privacy-consent-actions">
         <button type="button" onClick={() => onHelp("privacy")}><CircleHelp /> Details</button>
         <button type="button" onClick={onClear}><RotateCcw /> Clear saved data</button>
-        <button type="button" className="primary" onClick={onAccept}><Sparkles /> I understand</button>
+        <button ref={primaryActionRef} type="button" className="primary" onClick={onAccept}><Sparkles /> I understand</button>
       </div>
     </section>
+  );
+}
+
+// fin-8fb F3 — multi-goal planned lump sums editor. Reads/writes the whole
+// `plannedLumpSums` array through a single setField("plannedLumpSums", next)
+// call; model.js's normalizeState/sanitizePlannedLumpSums is the source of
+// truth for clamping, so this component displays whatever comes back rather
+// than re-validating locally.
+function PlannedGoalsEditor({ goals, onChange }) {
+  const rows = Array.isArray(goals) ? goals : [];
+  const atCap = rows.length >= 10;
+  const updateRow = (index, patch) => {
+    onChange(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+  };
+  const removeRow = (index) => {
+    onChange(rows.filter((_, rowIndex) => rowIndex !== index));
+  };
+  const addRow = () => {
+    if (atCap) return;
+    onChange([...rows, { name: "", amount: 0, year: 1, inflate: 1 }]);
+  };
+  return (
+    <div className="goal-editor">
+      {rows.length ? (
+        <div className="goal-editor-list">
+          {rows.map((goal, index) => (
+            <div className="goal-row" key={goal.id ?? `goal-${index}`}>
+              <label className="goal-row-field goal-row-name">
+                <span>Goal name</span>
+                <input type="text" value={goal.name || ""} maxLength="40" placeholder={`Goal ${index + 1}`} onChange={(event) => updateRow(index, { name: event.target.value })} aria-label={`Goal ${index + 1} name`} />
+              </label>
+              <label className="goal-row-field goal-row-amount">
+                <span>Amount</span>
+                <NumberEntry value={goal.amount} min={0} max={100000000} step={10000} onCommit={(value) => updateRow(index, { amount: value })} ariaLabel={`Goal ${index + 1} amount`} />
+              </label>
+              <label className="goal-row-field goal-row-year">
+                <span>Year</span>
+                <NumberEntry value={goal.year} min={1} max={80} step={1} onCommit={(value) => updateRow(index, { year: value })} ariaLabel={`Goal ${index + 1} year`} />
+              </label>
+              <label className="goal-row-field goal-row-inflate">
+                <span>Inflate</span>
+                <select value={Number(goal.inflate) === 1 ? 1 : 0} onChange={(event) => updateRow(index, { inflate: Number(event.target.value) })} aria-label={`Inflate goal ${index + 1}`}>
+                  <option value={1}>Yes, inflate goal</option>
+                  <option value={0}>No, fixed amount</option>
+                </select>
+              </label>
+              <button type="button" className="goal-row-remove" onClick={() => removeRow(index)} aria-label={`Remove goal ${index + 1}${goal.name ? `: ${goal.name}` : ""}`}><Trash2 /></button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="goal-editor-empty">No planned lump-sum goals yet. Add a car, wedding, renovation, or other one-time goal below.</p>
+      )}
+      <button type="button" className="goal-add-button" onClick={addRow} disabled={atCap} aria-disabled={atCap}>Add goal</button>
+      {atCap ? <small className="goal-editor-cap-hint">Up to 10 planned goals; remove one to add another.</small> : null}
+    </div>
   );
 }
 
 function AssumptionDrawer({ open, state, outputState = state, setField, onClose, openHelp, onClearSavedData }) {
   const [activeSection, setActiveSection] = useState("household");
   const [studioQuery, setStudioQuery] = useState("");
+  const drawerRef = useRef(null);
+  useModalFocus(open, drawerRef, { onClose });
   const household = useMemo(() => householdPlanProfile(outputState), [outputState]);
   const effectiveProjectionYears = useMemo(() => {
     const params = projectionParamsFromState(outputState);
@@ -3354,11 +3812,11 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
   ];
   const panelClass = (id) => `studio-panel ${activeSection === id ? "active" : ""}`;
   const studioResetFields = {
-    household: ["useHouseholdPlan", "retireeAge", "spouseAge", "dependantCount", "essentialMonthlyExpense", "discretionaryMonthlyExpense", "spouseMonthlyNeed", "dependantMonthlySupport", "dependantSupportYears", "pensionMonthlyIncome", "rentMonthlyIncome", "annuityMonthlyIncome", "pmvvyMonthlyIncome", "otherMonthlyIncome", "healthcareReserve", "emergencyMonths", "plannedLumpSumAmount", "plannedLumpSumYear", "plannedLumpSumInflate", "longevityYears", "contingencyYears", "legacyCorpusGoal"],
+    household: ["useHouseholdPlan", "retireeAge", "spouseAge", "dependantCount", "essentialMonthlyExpense", "discretionaryMonthlyExpense", "spouseMonthlyNeed", "dependantMonthlySupport", "dependantSupportYears", "pensionMonthlyIncome", "rentMonthlyIncome", "annuityMonthlyIncome", "pmvvyMonthlyIncome", "otherMonthlyIncome", "healthcareReserve", "emergencyMonths", "plannedLumpSums", "plannedLumpSumAmount", "plannedLumpSumYear", "plannedLumpSumInflate", "longevityYears", "contingencyYears", "legacyCorpusGoal"],
     core: ["principal", "incomeMode", "cashMode", "annualRate", "portfolioIncomeYield", "withdrawRate", "compounding", "years"],
     assets: ["useAssetReturns", "equityShare", "equityReturn", "debtReturn", "equityIncomeYield", "equityIncomePolicy", "debtIncomeYield", "debtIncomePolicy", "expenseRatio", "equityInstrument", "equityProductClass", "equityAcquisitionYear", "equitySttPaid", "debtInstrument", "debtProductClass", "debtAcquisitionYear"],
     tax: ["taxProfileMode", "taxRegime", "ageBand", "residentStatus", "pensionIncome", "otherIncome", "standardDeductionMode", "standardDeduction", "section87A", "section87AInterpretation", "tdsEnabled", "interestTdsRate", "nriWithholdingRate", "form15Declaration", "taxSlab", "costBasisPct", "equityFmv2018Pct", "useFmvGrandfathering", "legacyHoldingYears", "withdrawalPriority"],
-    risk: ["inflation", "taxRate", "harvestLtcg", "inflateWithdrawals", "allowPrincipalDrawdown", "idcwYield", "annualContribution", "contributionStepUp", "volatility", "equityVolatility", "debtVolatility", "equityDebtCorrelation", "shockModel", "monteCarloSamples", "monteCarloSeed", "glidePathEnabled", "glidePathEndEquity", "glidePathYears", "shockYear", "shockDrop", "monthlyTarget", "targetCorpus", "lockCashBucket", "cashBucketMonthsOverride", "lockEquityShare", "equityShareOverride", "preferSimpleProducts", "avoidCreditRisk", "allowAnnuity"],
+    risk: ["inflation", "taxRate", "harvestLtcg", "inflateWithdrawals", "allowPrincipalDrawdown", "withdrawalRule", "guardrailBandPct", "guardrailAdjustPct", "percentOfCorpusRate", "spendingFloorMonthly", "idcwYield", "annualContribution", "contributionStepUp", "volatility", "equityVolatility", "debtVolatility", "equityDebtCorrelation", "shockModel", "monteCarloSamples", "monteCarloSeed", "glidePathEnabled", "glidePathEndEquity", "glidePathYears", "shockYear", "shockDrop", "monthlyTarget", "targetCorpus", "lockCashBucket", "cashBucketMonthsOverride", "lockEquityShare", "equityShareOverride", "preferSimpleProducts", "avoidCreditRisk", "allowAnnuity", "backtestEnabled", "backtestUseHistoricalInflation"],
     law: ["taxLawJson"],
     privacy: []
   };
@@ -3379,7 +3837,7 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
   if (!open) return null;
   return (
     <div className="drawer-backdrop open" onClick={onClose}>
-      <aside className="assumption-drawer" role="dialog" aria-modal="true" aria-label="Assumption Studio" onClick={(event) => event.stopPropagation()}>
+      <aside ref={drawerRef} className="assumption-drawer" role="dialog" aria-modal="true" aria-label="Assumption Studio" onClick={(event) => event.stopPropagation()}>
         <button className="close-button" type="button" onClick={onClose} aria-label="Close assumptions"><X /></button>
         <div className="studio-hero">
           <div>
@@ -3459,9 +3917,13 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
             <Control label="Other monthly income" value={state.otherMonthlyIncome} onChange={(value) => setField("otherMonthlyIncome", value)} min={0} max={2000000} step={10000} />
             <Control label="Healthcare reserve" help={() => openHelp("household")} value={state.healthcareReserve} onChange={(value) => setField("healthcareReserve", value)} min={0} max={50000000} step={100000} />
             <Control label="Emergency reserve months" value={state.emergencyMonths} onChange={(value) => setField("emergencyMonths", value)} min={0} max={60} step={1} />
-            <Control label="Known lump-sum goal" value={state.plannedLumpSumAmount} onChange={(value) => setField("plannedLumpSumAmount", value)} min={0} max={100000000} step={100000} />
-            <Control label="Lump-sum year" value={state.plannedLumpSumYear} onChange={(value) => setField("plannedLumpSumYear", value)} min={0} max={60} step={1} />
-            <Control label="Inflate lump-sum" value={state.plannedLumpSumInflate} onChange={(value) => setField("plannedLumpSumInflate", Number(value))} options={[{ value: 1, label: "Yes, inflate goal" }, { value: 0, label: "No, fixed amount" }]} />
+            <div className="goal-editor-field" role="group" aria-label="Planned lump-sum goals" data-label="Planned lump-sum goals">
+              <span>
+                Planned lump-sum goals
+                <button type="button" className="help-chip" onClick={() => openHelp("plannedGoals")} aria-label="Help for Planned lump-sum goals">?</button>
+              </span>
+              <PlannedGoalsEditor goals={state.plannedLumpSums} onChange={(nextGoals) => setField("plannedLumpSums", nextGoals)} />
+            </div>
             <Control label="Longevity horizon" help={() => openHelp("household")} value={state.longevityYears} onChange={(value) => setField("longevityYears", value)} min={1} max={60} step={1} suffix="yrs" />
             <Control label="Contingency horizon" value={state.contingencyYears} onChange={(value) => setField("contingencyYears", value)} min={0} max={20} step={1} suffix="yrs" />
             <Control label="Legacy corpus goal" value={state.legacyCorpusGoal} onChange={(value) => setField("legacyCorpusGoal", value)} min={0} max={500000000} step={1000000} />
@@ -3529,6 +3991,18 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
             <Control label="LTCG harvesting" help={() => openHelp("taxScenarios")} value={state.harvestLtcg} onChange={(value) => setField("harvestLtcg", Number(value))} options={[{ value: 1, label: "Use annual exemption" }, { value: 0, label: "Ignore exemption" }]} />
             <Control label="Inflate cash target" value={state.inflateWithdrawals} onChange={(value) => setField("inflateWithdrawals", Number(value))} options={[{ value: 1, label: "Yes, inflation-linked" }, { value: 0, label: "No, flat nominal cash" }]} />
             <Control label="Allow corpus drawdown" value={state.allowPrincipalDrawdown} onChange={(value) => setField("allowPrincipalDrawdown", Number(value))} options={[{ value: 1, label: "Yes" }, { value: 0, label: "No" }]} />
+            <ChoiceGroup label="Withdrawal rule" value={state.withdrawalRule} onChange={(value) => setField("withdrawalRule", value)} options={[
+              { value: "fixed", label: "Fixed", note: "Inflation-indexed, unchanged" },
+              { value: "guardrails", label: "Guardrails", note: "Cuts, raises, or holds spending" },
+              { value: "percentOfCorpus", label: "% of corpus", note: "Recomputed every year" }
+            ]} />
+            <Control label="Guardrail band" value={state.guardrailBandPct} onChange={(value) => setField("guardrailBandPct", value)} min={0} max={50} step={1} suffix="%" disabled={state.withdrawalRule !== "guardrails"} note={state.withdrawalRule !== "guardrails" ? "Only used by the Guardrails withdrawal rule." : "Spending is cut or raised once the withdrawal rate drifts this far from the year-one rate."} />
+            <Control label="Guardrail adjustment" value={state.guardrailAdjustPct} onChange={(value) => setField("guardrailAdjustPct", value)} min={0} max={100} step={1} suffix="%" disabled={state.withdrawalRule !== "guardrails"} note={state.withdrawalRule !== "guardrails" ? "Only used by the Guardrails withdrawal rule." : "Size of each cut or raise when a guardrail band is breached."} />
+            <Control label="Percent of corpus rate" value={state.percentOfCorpusRate} onChange={(value) => setField("percentOfCorpusRate", value)} min={0} max={15} step={0.25} suffix="%" disabled={state.withdrawalRule !== "percentOfCorpus"} note={state.withdrawalRule !== "percentOfCorpus" ? "Only used by the % of corpus withdrawal rule." : "Cash target is recomputed as this share of opening corpus every year."} />
+            <Control label="Spending floor" value={state.spendingFloorMonthly} onChange={(value) => setField("spendingFloorMonthly", value)} min={0} max={2000000} step={5000} disabled={state.withdrawalRule === "fixed"} note={state.withdrawalRule === "fixed" ? "Only used by Guardrails and % of corpus." : "Minimum monthly cash in today's rupees; the resolved target never falls below this."} />
+            <button className="drawer-note" type="button" onClick={() => openHelp("withdrawalRules")}>
+              Guardrails cut, raise, or briefly hold spending near the year-one withdrawal rate; % of corpus recomputes the cash target from opening corpus every year. Tap for the full withdrawal-rule guide.
+            </button>
             <Control label="IDCW payout yield" help={() => openHelp("retirement")} value={state.idcwYield} onChange={(value) => setField("idcwYield", value)} min={0} max={18} step={0.25} suffix="%" />
             <Control label="Annual top-up" value={state.annualContribution} onChange={(value) => setField("annualContribution", value)} min={0} max={10000000} step={50000} />
             <Control label="Top-up step-up" value={state.contributionStepUp} onChange={(value) => setField("contributionStepUp", value)} min={0} max={25} step={0.5} suffix="%" />
@@ -3702,7 +4176,11 @@ function useRetirementDashboard() {
 	    requiredReturnForCash,
 	    maxMonthlyCash,
 	    interestShareForTarget,
-	    optimum
+	    optimum,
+	    // fin-8fb.8 F4 UI: null when backtestEnabled !== 1 (see analytics.js);
+	    // a non-null placeholder (cohortCount:0, populated percentileBands)
+	    // while the slow-tier cohort replay is still catching up.
+	    backtest
 	  } = deferredAnalyticsValue;
   // immediateMcSimulations: reads from the IMMEDIATE bundle so that
   // data-analytics-slow-pending correctly tracks when the slow tier (real MC)
@@ -3907,40 +4385,32 @@ function useRetirementDashboard() {
     if (initialScenarioHistory.warning) showToast(initialScenarioHistory.warning, "reset");
   }, []);
 
-  useEffect(() => {
-    if (!storageConsent) return undefined;
-    const timer = window.setTimeout(() => {
-      const result = persistJson(THEME_KEY, theme);
-      if (!result.ok) showToast(result.warning, "reset");
-    }, 250);
-    return () => window.clearTimeout(timer);
+  // fin-8fb.2 P5: these four were copy-pasted 250ms-debounced setTimeout
+  // effects; useDebouncedPersist unifies them and additionally flushes any
+  // pending write on pagehide/tab-hide/unmount, closing the race where an
+  // edit followed by a tab close within 250ms was silently lost.
+  useDebouncedPersist(() => {
+    if (!storageConsent) return;
+    const result = persistJson(THEME_KEY, theme);
+    if (!result.ok) showToast(result.warning, "reset");
   }, [storageConsent, theme]);
 
-  useEffect(() => {
-    if (!storageConsent) return undefined;
-    const timer = window.setTimeout(() => {
-      const result = persistJson(STORAGE_KEY, { state, preset, tableMode, activeView });
-      if (!result.ok) showToast(result.warning, "reset");
-    }, 250);
-    return () => window.clearTimeout(timer);
+  useDebouncedPersist(() => {
+    if (!storageConsent) return;
+    const result = persistJson(STORAGE_KEY, { state, preset, tableMode, activeView });
+    if (!result.ok) showToast(result.warning, "reset");
   }, [storageConsent, state, preset, tableMode, activeView]);
 
-  useEffect(() => {
-    if (!storageConsent) return undefined;
-    const timer = window.setTimeout(() => {
-      const result = persistJson(LAYOUT_KEY, layout);
-      if (!result.ok) showToast(result.warning, "reset");
-    }, 250);
-    return () => window.clearTimeout(timer);
+  useDebouncedPersist(() => {
+    if (!storageConsent) return;
+    const result = persistJson(LAYOUT_KEY, layout);
+    if (!result.ok) showToast(result.warning, "reset");
   }, [storageConsent, layout]);
 
-  useEffect(() => {
-    if (!storageConsent) return undefined;
-    const timer = window.setTimeout(() => {
-      const result = persistScenarioHistory(scenarioHistory);
-      if (!result.ok) showToast(result.warning, "reset");
-    }, 250);
-    return () => window.clearTimeout(timer);
+  useDebouncedPersist(() => {
+    if (!storageConsent) return;
+    const result = persistScenarioHistory(scenarioHistory);
+    if (!result.ok) showToast(result.warning, "reset");
   }, [storageConsent, scenarioHistory]);
 
   const resetLayout = () => {
@@ -4573,6 +5043,14 @@ function useRetirementDashboard() {
   const importScenarioSnapshot = async (file) => {
     if (!requireFreshAnalytics("importing saved scenarios")) return;
     try {
+      // fin-8fb.11: reject oversized files before reading/parsing — an
+      // unbounded JSON.parse(await file.text()) on a huge file can hang or
+      // crash the tab. A saved scenario snapshot is a few KB; 2 MB is a
+      // generous ceiling with headroom.
+      const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
+      if (file.size > MAX_IMPORT_BYTES) {
+        throw new Error(`File is too large to import (max 2 MB, got ${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
+      }
       const payload = JSON.parse(await file.text());
       const rawSnapshot = payload.snapshot || payload;
       if (!rawSnapshot?.state) throw new Error("No saved plan state found in the JSON file.");
@@ -5340,6 +5818,7 @@ function useRetirementDashboard() {
     interestShareForTarget,
     y1Tax,
     optimum,
+    backtest,
     optimumGuidance,
     pinnedStrategy,
 	    activeTaxLaw,
@@ -5563,6 +6042,7 @@ function DashboardPages() {
     interestShareForTarget,
     y1Tax,
     optimum,
+    backtest,
     optimumGuidance,
     pinnedStrategy,
 	    activeTaxLaw,
@@ -5857,6 +6337,7 @@ function DashboardPages() {
                 onExport={exportScenarioSnapshot}
                 onImport={importScenarioSnapshot}
                 disabled={analyticsPending}
+                goals={modelHousehold.plannedLumpSums}
               />
 
               <div className="kpi-strip">
@@ -6099,7 +6580,7 @@ function DashboardPages() {
                     </div>
                     <button type="button" onClick={() => setPinnedStrategyId("")} disabled={!pinnedStrategy}>Clear pin</button>
                   </div>
-                  <div className="table-wrap compact">
+                  <div className="table-wrap compact" tabIndex={0} role="group" aria-label="Strategy comparison table, scrollable">
                     <table>
                       <thead><tr><th>Strategy</th><th>Role</th><th>Score</th><th>Equity</th><th>Defence</th><th>Cash Years</th><th>Tax Drag</th><th>Action</th></tr></thead>
                       <tbody>
@@ -6269,6 +6750,15 @@ function DashboardPages() {
                   </div>
                 </article>
               </div>
+
+              <HistoricalBacktestLab
+                state={state}
+                setField={setField}
+                backtest={backtest}
+                analyticsHorizonYears={analyticsHorizonYears}
+                modelPending={modelPending}
+                openHelp={openHelp}
+              />
                 </>
               ) : null}
 
@@ -6357,7 +6847,7 @@ function DashboardPages() {
                   <MiniMetric label="Special Rates" value={`${formatPct(activeTaxLaw.specialRates.equityLtcg)} LTCG / ${formatPct(activeTaxLaw.specialRates.equityStcg)} STCG`} />
                   <MiniMetric label="87A New Regime" value={`${formatInr(activeTaxLaw.rebates.new.threshold)} cap`} />
                 </div>
-                <div className="table-wrap">
+                <div className="table-wrap" tabIndex={0} role="group" aria-label="Instrument tax treatment table, scrollable">
                   <table>
                     <thead><tr><th>Bucket</th><th>Instrument</th><th>Product Facts</th><th>Return</th><th>Tax Rule</th><th>Year-1 Tax</th></tr></thead>
                     <tbody>
@@ -6435,7 +6925,7 @@ function DashboardPages() {
                 <PanelHead eyebrow="Scenario Lens" title="Active Plan vs Alternatives" note="Compare income, growth, and stress paths over the same Indian inflation assumption." />
                 <div className="scenario-layout">
                   <EChart option={scenarioOption} />
-                  <div className="table-wrap compact">
+                  <div className="table-wrap compact" tabIndex={0} role="group" aria-label="Scenario comparison table, scrollable">
                     <table>
                       <thead><tr><th>Scenario</th><th>Final</th><th>Real</th><th>Cash</th></tr></thead>
                       <tbody>
@@ -6560,7 +7050,7 @@ function DashboardPages() {
                   <button type="button" className={activeTableMode === "full" ? "active" : ""} onClick={() => setTableMode("full")}>Full</button>
                   <button type="button" className={activeTableMode === "monthly" ? "active" : ""} disabled={!monthlyAuditRows.length} onClick={() => setTableMode("monthly")}>Monthly FIFO</button>
                 </div>
-                <div className="table-wrap schedule">
+                <div className="table-wrap schedule" tabIndex={0} role="group" aria-label="Projection schedule table, scrollable">
                   <table>
                     <thead><tr>{visibleLedgerColumns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead>
                     <tbody>
@@ -6783,6 +7273,12 @@ function DashboardShell() {
     appShellStyle,
     immediateMcSimulations
   } = dashboard;
+  // fin-8fb.8 follow-up (W0-B note): mobile-insights-sheet is a real
+  // aria-modal surface (see its role="dialog" below) but previously had no
+  // focus management, unlike GuidedTour/HelpDrawer/AssumptionDrawer. The ref
+  // lives here in DashboardShell, where the sheet is actually rendered.
+  const mobileInsightsRef = useRef(null);
+  useModalFocus(mobileInsightsOpen, mobileInsightsRef, { onClose: () => setMobileInsightsOpen(false) });
   return (
     <>
       <div className="app-shell" style={appShellStyle}>
@@ -6882,7 +7378,7 @@ function DashboardShell() {
 	            <section className={`main-stack page-surface view-${activeView} ${modelPending ? "model-pending" : ""} ${analyticsPending ? "analytics-pending" : ""}`} data-active-view={activeView} data-analytics-pending={analyticsPending ? "true" : "false"} data-analytics-slow-pending={immediateMcSimulations === 0 ? "true" : "false"} data-analytics-error={analyticsError}>
               <DashboardPages />
               <footer className="app-footer app-disclaimer-footer" aria-label="Application footer">
-                <span>Retirement Corpus & Income Planner · Planning tool · not financial/tax advice · v1.0.0 · MIT · </span>
+                <span>Retirement Corpus & Income Planner · Planning tool · not financial/tax advice · v{_appVersion} · MIT · </span>
                 <a href="https://github.com/stribog-cloud/retirement-corpus-planner" target="_blank" rel="noopener noreferrer">
                   github.com/stribog-cloud/retirement-corpus-planner
                 </a>
@@ -6934,6 +7430,14 @@ function DashboardShell() {
                   <StatementRow label="Cash Goal" value={`${Math.round(clamp(cashRatio, 0, 9.99) * 100)}%`} ratio={cashRatio} accent="coral" />
                   <StatementRow label="End Chance" value={successDisplay.primary} ratio={mc.successProbability} />
                   <StatementRow label="Tax Drag" value={formatInr(final.cumTax)} ratio={taxBurden} accent="coral" />
+                  {modelState.withdrawalRule !== "fixed" ? (
+                    <StatementRow
+                      label="Withdrawal Rule"
+                      value={`${final.guardrailAction === "cut" ? "Cut" : final.guardrailAction === "raise" ? "Raised" : final.guardrailAction === "inflation-hold" ? "Held" : "On track"} · ${Math.round(clamp(final.spendingMultiplier, 0.5, 2) * 100)}%`}
+                      ratio={clamp((final.spendingMultiplier - 0.5) / 1.5, 0, 1)}
+                      accent={final.guardrailAction === "cut" ? "coral" : undefined}
+                    />
+                  ) : null}
                 </section>
                 <section className="panel smart-card">
                   <div className="smart-head"><div><span>Smart Insights</span><h2>What Changed</h2></div><Sparkles /></div>
@@ -6975,7 +7479,7 @@ function DashboardShell() {
         <button type="button" onClick={() => setMobileInsightsOpen(true)}><Sparkles /> Insights</button>
         <button type="button" onClick={startTour}><CircleHelp /> Tour</button>
       </div>
-      <div className={`mobile-insights-sheet ${mobileInsightsOpen ? "open" : ""}`} role="dialog" aria-modal="true" aria-label="Mobile insights">
+      <div ref={mobileInsightsRef} className={`mobile-insights-sheet ${mobileInsightsOpen ? "open" : ""}`} role="dialog" aria-modal="true" aria-label="Mobile insights">
         <button type="button" className="mobile-sheet-backdrop" onClick={() => setMobileInsightsOpen(false)} aria-label="Close mobile insights" />
         <section className="mobile-sheet-panel">
           <div className="mobile-sheet-head">
@@ -6988,6 +7492,14 @@ function DashboardShell() {
             <StatementRow label="Corpus Goal" value={`${Math.round(clamp(corpusRatio, 0, 9.99) * 100)}%`} ratio={corpusRatio} />
             <StatementRow label="Cash Goal" value={`${Math.round(clamp(cashRatio, 0, 9.99) * 100)}%`} ratio={cashRatio} accent="coral" />
             <StatementRow label="End Chance" value={successDisplay.primary} ratio={mc.successProbability} />
+            {modelState.withdrawalRule !== "fixed" ? (
+              <StatementRow
+                label="Withdrawal Rule"
+                value={`${final.guardrailAction === "cut" ? "Cut" : final.guardrailAction === "raise" ? "Raised" : final.guardrailAction === "inflation-hold" ? "Held" : "On track"} · ${Math.round(clamp(final.spendingMultiplier, 0.5, 2) * 100)}%`}
+                ratio={clamp((final.spendingMultiplier - 0.5) / 1.5, 0, 1)}
+                accent={final.guardrailAction === "cut" ? "coral" : undefined}
+              />
+            ) : null}
           </div>
           <div className="mobile-smart-list">
             {smartInsights.slice(0, 4).map((line) => <p key={line}>{line}</p>)}
@@ -7087,6 +7599,9 @@ const MODEL_DEBUG_API = {
   annualPortfolioIncomeRate,
   calculateSequencePath,
   calculateMonteCarlo,
+  calculateHistoricalBacktest,
+  INDIA_ANNUAL_RETURNS,
+  DATASET_META,
   quantile,
   annualSequenceShock,
   grandfatheredEquityGain,
@@ -7107,6 +7622,9 @@ const MODEL_DEBUG_API = {
   formatFullInr,
   formatPct,
   targetAnnualCashForYear,
+  resolveDynamicSpending,
+  sanitizePlannedLumpSums,
+  resolvePlannedLumpSums,
   DEFAULT_TAX_LAW,
   formatTaxLawJson,
   sanitizeTaxLaw,
@@ -7265,5 +7783,10 @@ export {
   taxRuleLabel,
   effectiveMonthlyWithdrawal,
   toastDurationMs,
-  calcSparklineTicks
+  calcSparklineTicks,
+  useModalFocus,
+  MODAL_FOCUSABLE_SELECTOR,
+  useDebouncedPersist,
+  systemPrefersLightTheme,
+  resolveThemePreference
 };

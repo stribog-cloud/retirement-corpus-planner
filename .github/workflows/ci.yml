@@ -156,6 +156,72 @@ jobs:
           PUPPETEER_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e
 
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+      - name: UI token drift gate
+        run: npm run ui:tokens
+      - name: UI contrast gate
+        run: npm run ui:contrast
+      - name: Documentation sync gate
+        # docs/internal/ is gitignored and therefore absent from this public
+        # checkout. scripts/doc-gate.mjs has an explicit top-of-file guard
+        # that detects the missing directory and exits 0 with a log line
+        # ("public release tree, internal docs are not tracked") instead of
+        # failing — see scripts/doc-gate.mjs. That means this step still
+        # exercises the command on every public CI run rather than silently
+        # skipping the job; it just has nothing to check here. Local/audit
+        # runs with docs/internal present get the full governed-doc gate.
+        run: npm run doc:gate
+      - name: Zero-network runtime gate
+        run: npm run network:gate
+
+  a11y:
+    name: Accessibility
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      # test:a11y (scripts/accessibility-check.mjs) drives axe-core's
+      # programmatic DOM/ARIA/contrast ruleset through Puppeteer. It does not
+      # compare rendered screenshots or pixel-precise element geometry the
+      # way test-e2e's tour/spotlight assertions do, so the Liberation/
+      # Noto/DejaVu metric-compatible font install used above (needed only
+      # for glyph-metric-sensitive pixel assertions) is not needed for this
+      # job.
+      - name: Install Chrome for Puppeteer
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+      - name: Automated accessibility check
+        env:
+          PUPPETEER_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:a11y
+
   charter-docs:
     name: Charter Docs
     runs-on: ubuntu-latest

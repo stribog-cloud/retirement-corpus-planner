@@ -39,7 +39,17 @@ import {
   renderMethodology,
   __test__,
 } from "../src/exports/pdf-report.js";
-import { buildMonthlyLedger, calculate, BASE } from "../src/model.js";
+import { buildMonthlyLedger, calculate, BASE, normalizeState, projectionParamsFromState, householdPlanProfile } from "../src/model.js";
+import { PLANNING_VERSION } from "../src/planning.js";
+
+// fin-8fb.2 P1: the PDF "creator" metadata now derives from package.json's
+// version via the __APP_VERSION__ Vite define (same guard as src/exports/csv.js),
+// rather than a hardcoded "v1.0.0" string. Assert against that same source of
+// truth so this test doesn't silently drift from the shipped version.
+// eslint-disable-next-line no-undef
+const EXPECTED_APP_VERSION = (typeof __APP_VERSION__ !== "undefined" && __APP_VERSION__)
+  ? __APP_VERSION__   // eslint-disable-line no-undef
+  : PLANNING_VERSION;
 
 describe("R4.9.5g PDF report scaffold — module surface", () => {
   it("USE_R4_9_5G_REPORT escape-hatch flag has been removed (fin-4ml cleanup)", () => {
@@ -172,7 +182,7 @@ describe("R4.9.5g PDF report scaffold — buildPdfReport()", () => {
     if (props) {
       expect(props.title).toBe("Retirement Corpus & Income Planner");
       expect(props.subject).toMatch(/test-fingerprint-r4-9-5g-scaffold/);
-      expect(props.creator).toMatch(/v1\.0\.0/);
+      expect(props.creator).toBe(`Retirement Corpus & Income Planner v${EXPECTED_APP_VERSION}`);
     }
     // Language setter is best-effort; assert the function existed.
     expect(typeof doc.setLanguage === "function" || doc.setLanguage === undefined).toBe(true);
@@ -707,4 +717,194 @@ describe("R4.9.5h Pass-2 Dispatch 3 — D24 Appendix A relocation", () => {
     // The PDF has more than the 7 sections — the appendix added at least one page.
     expect(doc.getNumberOfPages()).toBeGreaterThan(7);
   }, 60000);
+});
+
+// ── fin-8fb.9 — v2 exports: §3 guardrail note, §5 backtest lab, §7 assumptions/goals ──
+
+function makeReportContext(patch = {}) {
+  const state = normalizeState({
+    ...BASE,
+    principal: 5000000,
+    monthlyTarget: 30000,
+    years: 5,
+    incomeMode: "interest",
+    cashMode: "monthlyTarget",
+    useAssetReturns: 0,
+    annualRate: 8,
+    ...patch,
+  });
+  const params = projectionParamsFromState(state);
+  const model = calculate(params);
+  const household = householdPlanProfile(state);
+  return {
+    reportFingerprint: "fin-8fb9-test",
+    reportState: state,
+    reportParams: params,
+    reportModel: model,
+    reportHousehold: household,
+    reportMc: { simulations: 0, successProbability: 0, p10: [], p50: [], p90: [], finals: [] },
+    reportTaxLaw: { version: "FY 2025-26 / AY 2026-27 baseline" },
+  };
+}
+
+describe("fin-8fb.9 — §3 Plan Diagnosis dynamic-spending note", () => {
+  it("renders without throwing when withdrawalRule is guardrails", async () => {
+    const { jsPDF } = await import("jspdf");
+    const ctx = makeReportContext({ withdrawalRule: "guardrails", incomeMode: "swp", cashMode: "monthlyTarget", allowPrincipalDrawdown: 1, useAssetReturns: 1, equityShare: 60, years: 6 });
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    await expect(renderPlanDiagnosis(doc, ctx)).resolves.toBeUndefined();
+    expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders without throwing when withdrawalRule is fixed (default) — no note to add", async () => {
+    const { jsPDF } = await import("jspdf");
+    const ctx = makeReportContext();
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    await expect(renderPlanDiagnosis(doc, ctx)).resolves.toBeUndefined();
+  });
+});
+
+describe("fin-8fb.9 — §5 Historical Backtest Lab sub-section", () => {
+  it("adds an extra page when backtestEnabled=1 and the horizon fits the bundled dataset", async () => {
+    const { jsPDF } = await import("jspdf");
+    const onCtx = makeReportContext({ backtestEnabled: 1, years: 10 });
+    const offCtx = makeReportContext({ backtestEnabled: 0, years: 10 });
+
+    const docOn = new jsPDF({ unit: "pt", format: "a4" });
+    await renderScenarios(docOn, onCtx);
+    const docOff = new jsPDF({ unit: "pt", format: "a4" });
+    await renderScenarios(docOff, offCtx);
+
+    expect(docOn.getNumberOfPages()).toBeGreaterThan(docOff.getNumberOfPages());
+  });
+
+  it("does not add an extra page when backtestEnabled=1 but the horizon exceeds the bundled dataset (cohortCount=0)", async () => {
+    const { jsPDF } = await import("jspdf");
+    // BASE-derived dataset has 35 FY rows (see src/data/india-annual-returns.js);
+    // a 60-year horizon guarantees cohortCount===0.
+    const ctx = makeReportContext({ backtestEnabled: 1, years: 60 });
+    const offCtx = makeReportContext({ backtestEnabled: 0, years: 60 });
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const docOff = new jsPDF({ unit: "pt", format: "a4" });
+    await renderScenarios(doc, ctx);
+    await renderScenarios(docOff, offCtx);
+    expect(doc.getNumberOfPages()).toBe(docOff.getNumberOfPages());
+  });
+
+  it("prefers a precomputed exportContext.reportBacktest over recomputing live", async () => {
+    const { jsPDF } = await import("jspdf");
+    const ctx = makeReportContext({ backtestEnabled: 1, years: 10 });
+    // A precomputed zero-cohort result should suppress the sub-section even
+    // though state.backtestEnabled===1 and the live recompute would succeed.
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    await renderScenarios(doc, { ...ctx, reportBacktest: { cohortCount: 0 } });
+    const baselineDoc = new jsPDF({ unit: "pt", format: "a4" });
+    await renderScenarios(baselineDoc, { ...ctx, reportBacktest: null, reportState: { ...ctx.reportState, backtestEnabled: 0 } });
+    expect(doc.getNumberOfPages()).toBe(baselineDoc.getNumberOfPages());
+  });
+
+  it("tolerates a precomputed reportBacktest missing its .cohorts array (malformed external shape)", async () => {
+    const { jsPDF } = await import("jspdf");
+    const ctx = makeReportContext({ backtestEnabled: 1, years: 10 });
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    // cohortCount > 0 but no .cohorts key at all — the sub-section must still
+    // render (empty cohort table) rather than throwing.
+    await expect(renderScenarios(doc, {
+      ...ctx,
+      reportBacktest: { cohortCount: 3, horizon: 10, successRate: 1, worst: { startFy: "2000-01", endingCorpus: 1 }, best: { startFy: "2001-02", endingCorpus: 2 } },
+    })).resolves.toBeUndefined();
+  });
+
+  it("shows a 'first N of M' note when the cohort result exceeds the 35-row render cap", async () => {
+    const { jsPDF } = await import("jspdf");
+    const ctx = makeReportContext({ backtestEnabled: 1, years: 10 });
+    // The bundled dataset can never itself produce > 35 cohorts, but a future
+    // larger dataset (or a precomputed exportContext.reportBacktest) could —
+    // synthesize one directly to exercise that forward-compatible branch.
+    const manyCohorts = Array.from({ length: 40 }, (_, i) => ({
+      startFy: `${1980 + i}-${String((1980 + i + 1) % 100).padStart(2, "0")}`,
+      endingCorpus: 1000000 + i,
+      realEndingCorpus: 900000 + i,
+      depleted: false,
+      depletionYear: null,
+    }));
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    await expect(renderScenarios(doc, {
+      ...ctx,
+      reportBacktest: {
+        cohortCount: 40, horizon: 10, successRate: 1,
+        worst: { startFy: manyCohorts[0].startFy, endingCorpus: manyCohorts[0].endingCorpus, depletionYear: null },
+        best: { startFy: manyCohorts[1].startFy, endingCorpus: manyCohorts[1].endingCorpus, depletionYear: null },
+        cohorts: manyCohorts,
+      },
+    })).resolves.toBeUndefined();
+  });
+
+  it("renders a 'Yes (yr N)' depleted cohort row when an engineered plan depletes within the historical replay", async () => {
+    const { jsPDF } = await import("jspdf");
+    // A tiny corpus against a large monthly target guarantees every historical
+    // cohort depletes quickly, exercising the depleted branch of the cohort table.
+    const ctx = makeReportContext({
+      backtestEnabled: 1, years: 5,
+      principal: 100000, monthlyTarget: 500000, incomeMode: "interest", cashMode: "monthlyTarget",
+    });
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    await expect(renderScenarios(doc, ctx)).resolves.toBeUndefined();
+  });
+});
+
+describe("fin-8fb.9 — §7 assumptions (withdrawal rule / rebalancing / planned goals)", () => {
+  // doc.autoTable is only attached via buildPdfReport()'s dynamic-import
+  // sequence (R4.9.5g fin-c96.10); calling render* directly needs the same
+  // attach step or every _atDef() call silently no-ops (see buildDoc() above,
+  // used by the pre-existing §7 describe block).
+  const buildDoc = async () => {
+    const { jsPDF } = await import("jspdf");
+    const autoTableModule = await import("jspdf-autotable");
+    const autoTableFn = autoTableModule.default || autoTableModule.autoTable;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    if (typeof autoTableFn === "function") doc.autoTable = (opts) => autoTableFn(doc, opts);
+    return doc;
+  };
+
+  it("renders the dynamic-withdrawal assumptions sub-page without throwing", async () => {
+    const ctx = makeReportContext({ withdrawalRule: "guardrails", rebalanceTaxAware: 1 });
+    const doc = await buildDoc();
+    await expect(renderMethodology(doc, ctx)).resolves.toBeUndefined();
+    expect(typeof doc.lastAutoTable.finalY).toBe("number");
+  }, 30000);
+
+  it("adds a Planned Goals table (extra autotable) only when household goals are present", async () => {
+    const noGoalsCtx = makeReportContext();
+    const withGoalsCtx = makeReportContext({
+      useHouseholdPlan: 1,
+      plannedLumpSums: [{ name: "Kid's college", amount: 2500000, year: 9, inflate: 1 }],
+    });
+
+    const docNoGoals = await buildDoc();
+    await renderMethodology(docNoGoals, noGoalsCtx);
+    const noGoalsPages = docNoGoals.getNumberOfPages();
+
+    const docWithGoals = await buildDoc();
+    await expect(renderMethodology(docWithGoals, withGoalsCtx)).resolves.toBeUndefined();
+    // Both produce the same section-page structure (goals table is additive
+    // content on the same assumptions sub-page, not a new page by itself).
+    expect(docWithGoals.getNumberOfPages()).toBe(noGoalsPages);
+    expect(typeof docWithGoals.lastAutoTable.finalY).toBe("number");
+  }, 30000);
+
+  it("renders the goals table without throwing even when doc.autoTable was never attached (every _atDef call silently no-ops)", async () => {
+    // Mirrors the pre-existing "each section render function is async..." smoke
+    // test's plain-jsPDF-doc pattern — here specifically with goals present, so
+    // the goalsY calculation's `(doc.lastAutoTable || {})` fallback (no prior
+    // autotable ran) gets exercised.
+    const { jsPDF } = await import("jspdf");
+    const ctx = makeReportContext({
+      useHouseholdPlan: 1,
+      plannedLumpSums: [{ name: "Plain-doc goal", amount: 100000, year: 2, inflate: 0 }],
+    });
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    await expect(renderMethodology(doc, ctx)).resolves.toBeUndefined();
+    expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(2);
+  });
 });

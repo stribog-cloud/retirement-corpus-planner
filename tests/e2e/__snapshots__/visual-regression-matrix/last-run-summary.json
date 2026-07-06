@@ -1,23 +1,23 @@
 {
-  "date": "2026-05-25T05:15:04.315Z",
+  "date": "2026-07-06T09:43:35.407Z",
   "results": [
     {
       "component": "StatCard",
       "state": "default",
       "theme": "light",
       "status": "PASS",
-      "diffPct": "0.0000",
-      "diffPixels": 0,
-      "totalPixels": 7519
+      "diffPct": "2.0202",
+      "diffPixels": 314,
+      "totalPixels": 15543
     },
     {
       "component": "StatCard",
       "state": "hover",
       "theme": "light",
       "status": "PASS",
-      "diffPct": "0.0000",
-      "diffPixels": 0,
-      "totalPixels": 7519
+      "diffPct": "2.0202",
+      "diffPixels": 314,
+      "totalPixels": 15543
     },
     {
       "component": "StatCard",
@@ -154,8 +154,8 @@
       "state": "default",
       "theme": "light",
       "status": "PASS",
-      "diffPct": "0.0000",
-      "diffPixels": 0,
+      "diffPct": "4.3169",
+      "diffPixels": 3283,
       "totalPixels": 76050
     },
     {
@@ -300,7 +300,7 @@
       "status": "PASS",
       "diffPct": "0.0000",
       "diffPixels": 0,
-      "totalPixels": 6384
+      "totalPixels": 4452
     },
     {
       "component": "MiniMetric",
@@ -374,7 +374,7 @@
       "status": "PASS",
       "diffPct": "0.0000",
       "diffPixels": 0,
-      "totalPixels": 10617
+      "totalPixels": 10701
     },
     {
       "component": "LegendRows",
@@ -516,8 +516,8 @@
       "state": "default",
       "theme": "light",
       "status": "PASS",
-      "diffPct": "0.0000",
-      "diffPixels": 0,
+      "diffPct": "10.2195",
+      "diffPixels": 2263,
       "totalPixels": 22144
     },
     {
@@ -818,18 +818,18 @@
       "state": "default",
       "theme": "dark",
       "status": "PASS",
-      "diffPct": "0.0000",
-      "diffPixels": 0,
-      "totalPixels": 7519
+      "diffPct": "2.0202",
+      "diffPixels": 314,
+      "totalPixels": 15543
     },
     {
       "component": "StatCard",
       "state": "hover",
       "theme": "dark",
       "status": "PASS",
-      "diffPct": "0.0000",
-      "diffPixels": 0,
-      "totalPixels": 7519
+      "diffPct": "2.0202",
+      "diffPixels": 314,
+      "totalPixels": 15543
     },
     {
       "component": "StatCard",
@@ -966,8 +966,8 @@
       "state": "default",
       "theme": "dark",
       "status": "PASS",
-      "diffPct": "0.0000",
-      "diffPixels": 0,
+      "diffPct": "4.2472",
+      "diffPixels": 3230,
       "totalPixels": 76050
     },
     {
@@ -1328,8 +1328,8 @@
       "state": "default",
       "theme": "dark",
       "status": "PASS",
-      "diffPct": "0.0000",
-      "diffPixels": 0,
+      "diffPct": "9.5918",
+      "diffPixels": 2124,
       "totalPixels": 22144
     },
     {

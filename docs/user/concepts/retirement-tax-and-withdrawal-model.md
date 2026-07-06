@@ -1,12 +1,12 @@
 ---
 title: "Retirement Tax and Withdrawal Model"
 created: 2026-05-12
-updated: 2026-05-18
+updated: 2026-07-06
 type: project/user-doc
 status: published
-version: "2.1.0"
-revision: 6
-last_updated: 2026-05-18
+version: "2.2.0"
+revision: 7
+last_updated: 2026-07-06
 tags: [user-docs, concepts, tax, withdrawal]
 project: fin-dashboard
 owners: [msambare]
@@ -83,7 +83,24 @@ The dashboard shows nominal and real values. Real values are today's-rupee value
 
 ![Simulation risk workspace](../assets/simulations-risk.jpg)
 
-## 11. Professional Review
+## 11. Capital-Loss Carry-Forward
+
+A capital loss realised during the projection window is now carried forward automatically across projection years inside the SWP and Interest cash engines. A loss is held for up to 8 assessment years and applied against future gains in the order the law requires — short-term losses against short-term gains first, then against any remaining long-term gains; long-term losses only against long-term gains. There is no on/off toggle: this corrects a previously unmodelled tax benefit rather than adding an optional feature. A plan that never realises a capital loss during the projection window is unaffected; a plan that does realise a loss may now show a lower projected tax and a higher closing corpus than before this change. The IDCW engine does not participate, because IDCW distributions do not realise capital gains or losses.
+
+## 12. Tax-Aware Rebalancing (Opt-in)
+
+By default, the SWP engine's annual equity/debt rebalancing moves value between buckets without realising any gain or loss — a simplification, since a real-world rebalance in India is a sale followed by a repurchase that can realise capital gains or losses. Turning on tax-aware rebalancing switches the selling leg of that annual rebalance to a real lot sale: it realises a capital gain or loss, pays tax out of the sale proceeds before the remaining value moves to the other bucket, and nets against the same year's withdrawal gains and the capital-loss carry-forward pool described above. Leave this off to keep the simpler, tax-free rebalancing behaviour used in prior releases; turn it on for a more realistic, and typically slightly less favourable, tax picture.
+
+## 13. Dynamic Withdrawal Rules
+
+By default, the yearly cash need is a fixed target that grows with inflation every year — unchanged from prior releases. Two optional rules change how that target is resolved instead:
+
+- **Guardrails** — a simplified version of the well-known Guyton-Klinger rule. If the withdrawal rate drifts more than 20% above the rate the plan started with, spending is cut by 10%; if it drifts more than 20% below, spending is raised by 10%; otherwise, in a year that follows a market loss, that year's inflation increase is held flat instead of applied.
+- **% of corpus** — the yearly target is recomputed as a fixed percentage of that year's opening corpus, every year, with no smoothing. This ignores inflation escalation entirely, so the cash target can move with the market from one year to the next.
+
+Both rules respect an optional spending floor (in today's rupees) so the resolved target never falls below a minimum you set, and both leave planned lump-sum goals untouched — goals are added on top of the resolved recurring target in their own year, never scaled by a cut, raise, or percentage recompute.
+
+## 14. Professional Review
 
 Use Trust Center before acting on tax or risk numbers. Use the Adviser / CA Pack when a Chartered Accountant or adviser needs the active tax-law ruleset, assumptions JSON, CSV ledger, scenario comparison, risk method, and caveats alongside the PDF report.
 
@@ -91,6 +108,7 @@ Use Trust Center before acting on tax or risk numbers. Use the Adviser / CA Pack
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 2.2.0 | 7 | 2026-07-06 | Added capital-loss carry-forward (§11), opt-in tax-aware rebalancing (§12), and dynamic withdrawal rules (§13) explanations for v2.0.0; renumbered Professional Review to §14. |
 | 2.1.0 | 6 | 2026-05-18 | Rewrote §7 Section 87A to reflect CBDT Oct-2024 conservative position (rebate on slab income only; not on special-rate gains) and added implementation caveat for users with mixed income (audit round 3, Q-Q10-B decision). |
 | 2.0.0 | 5 | 2026-05-15 | Expanded tax and withdrawal explanation with cash-engine comparison, slab/special-rate separation, relief assumptions, household offsets, and review boundary. |
 | 1.2.0 | 4 | 2026-05-14 | Added Trust Center and Adviser / CA Pack guidance for professional review. |

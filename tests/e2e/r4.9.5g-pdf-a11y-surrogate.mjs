@@ -157,8 +157,10 @@ try {
   check("metadata: Keywords present",
     typeof info.Keywords === "string" && /retirement/i.test(info.Keywords),
     `Keywords=${JSON.stringify(info.Keywords)}`);
+  // Version-agnostic: the Creator carries the product name + a semver
+  // (injected from package.json via __APP_VERSION__), not a frozen literal.
   check("metadata: Creator present",
-    typeof info.Creator === "string" && /v1\.0\.0/.test(info.Creator),
+    typeof info.Creator === "string" && /Retirement Corpus & Income Planner v\d+\.\d+\.\d+/.test(info.Creator),
     `Creator=${JSON.stringify(info.Creator)}`);
 
   // ── Surrogate 2: doc.setLanguage("en-IN")

@@ -32,7 +32,11 @@ function startServer() {
 
 async function dismissTour(page) {
   await page.evaluate(() => {
-    const privacy = document.querySelector(".privacy-consent-card");
+    // R4.5b renamed .privacy-consent-card → .disclaimer-notice-card; keep the
+    // legacy fallback like the e2e harnesses do. If the disclaimer is not
+    // dismissed, its modal backdrop blocks navigation clicks on slower CI
+    // runners (passed locally only by racing ahead of the overlay).
+    const privacy = document.querySelector(".disclaimer-notice-card") || document.querySelector(".privacy-consent-card");
     if (!privacy) return;
     [...privacy.querySelectorAll("button")].find((button) => /understand/i.test(button.textContent))?.click();
   });
@@ -68,6 +72,10 @@ const server = await startServer();
 const port = server.address().port;
 const browser = await puppeteer.launch({ executablePath: chrome, headless: "new", args: ["--no-sandbox", "--disable-gpu"] });
 const page = await browser.newPage();
+// fin-8fb.14 (W-0002): headless Chrome defaults to prefers-color-scheme
+// light; force dark so this gate's baseline behaviour matches every other
+// e2e harness (see tests/e2e/_browser-helper.mjs for the full rationale).
+await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "dark" }]);
 const failures = [];
 
 try {

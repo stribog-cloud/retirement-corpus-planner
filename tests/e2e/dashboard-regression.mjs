@@ -1129,8 +1129,12 @@ try {
   await setInput(page, ".assumption-drawer .control[data-label=\"Emergency reserve months\"] input", 18);
   await setInput(page, ".assumption-drawer .control[data-label=\"Longevity horizon\"] input", 32);
   await setInput(page, ".assumption-drawer .control[data-label=\"Contingency horizon\"] input", 6);
-  await setInput(page, ".assumption-drawer .control[data-label=\"Known lump-sum goal\"] input", 1000000);
-  await setInput(page, ".assumption-drawer .control[data-label=\"Lump-sum year\"] input", 4);
+  // v2.0 (fin-8fb.5): the single legacy lump-sum control was replaced by the
+  // multi-goal PlannedGoalsEditor. Add one goal and drive its amount/year
+  // NumberEntry inputs — same single-goal intent as before.
+  await page.evaluate(() => document.querySelector(".assumption-drawer .goal-add-button")?.click());
+  await setInput(page, ".assumption-drawer input[aria-label=\"Goal 1 amount\"]", 1000000);
+  await setInput(page, ".assumption-drawer input[aria-label=\"Goal 1 year\"]", 4);
   await page.evaluate(() => document.querySelector(".drawer-backdrop.open .close-button")?.click());
   // Transitional wait — captureProjectionSurface below waits for slow tier
   // itself; doubling the slow wait here can exceed 60s on Ubuntu 2-vCPU

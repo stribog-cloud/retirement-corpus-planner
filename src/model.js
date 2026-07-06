@@ -9,6 +9,13 @@ import {
   withdrawalRateBand,
   withdrawalRateForState
 } from "./planning.js";
+// fin-8fb F4 — Historical Backtest Lab: the bundled India fiscal-year return
+// series is a pure, deterministic data module (no browser/React dependency),
+// so importing it here keeps calculateHistoricalBacktest's default dataset
+// argument self-contained. src/model.js already imports from ./planning.js —
+// it is not an import-free module — so this does not change its purity
+// posture (see docs/developer/architecture.md and tests/domain-contract.test.mjs).
+import { INDIA_ANNUAL_RETURNS } from "./data/india-annual-returns.js";
 
 const DEFAULT_TAX_LAW = {
   version: "FY 2025-26 / AY 2026-27 baseline",
@@ -182,6 +189,24 @@ const BASE = {
   inflateWithdrawals: 1,
   allowPrincipalDrawdown: 1,
   withdrawalPriority: "proRata",
+  // fin-8fb F2 — dynamic withdrawal rules (guardrails / percent-of-corpus).
+  // "fixed" preserves current behavior exactly (see resolveDynamicSpending).
+  withdrawalRule: "fixed",
+  guardrailBandPct: 20,
+  guardrailAdjustPct: 10,
+  percentOfCorpusRate: 5,
+  spendingFloorMonthly: 0,
+  // fin-8fb F4 — Historical Backtest Lab. backtestEnabled defaults on (the
+  // compute is deterministic and cheap relative to Monte Carlo); the
+  // historical-inflation replacement defaults off so default projections
+  // keep the user's single assumed inflation rate (mixed real-return /
+  // assumed-inflation mode is documented as planning-grade).
+  backtestEnabled: 1,
+  backtestUseHistoricalInflation: 0,
+  // fin-8fb F5 — opt-in tax-aware rebalancing. Default 0 keeps the pre-F5
+  // tax-free rebalance transfer (see rebalanceBucketsToShare's default-path
+  // comment); set to 1 to realize the selling leg as a real FIFO lot sale.
+  rebalanceTaxAware: 0,
   costBasisPct: 75,
   legacyHoldingYears: 3,
   idcwYield: 6,
@@ -317,7 +342,14 @@ const NUMERIC_FIELDS = new Set([
   "equityShareOverride",
   "preferSimpleProducts",
   "avoidCreditRisk",
-  "allowAnnuity"
+  "allowAnnuity",
+  "guardrailBandPct",
+  "guardrailAdjustPct",
+  "percentOfCorpusRate",
+  "spendingFloorMonthly",
+  "backtestEnabled",
+  "backtestUseHistoricalInflation",
+  "rebalanceTaxAware"
 ]);
 
 function clamp(value, min, max) {
@@ -330,6 +362,58 @@ function normalizeFieldValue(key, value) {
   return Number.isFinite(next) ? next : 0;
 }
 
+// fin-8fb F3 — multi-goal planned lump sums. Dedicated sanitizer (NOT a
+// NUMERIC_FIELDS entry — plannedLumpSums is an array, not a scalar). Accepts
+// anything; returns a clean array of at most 10 entries, each
+// { id?, name, amount, year, inflate }. Invalid entries (non-object, missing
+// or negative/non-finite amount, non-finite year) are dropped; year is
+// clamped into [1, 80] rather than dropped so a slightly-out-of-range year
+// still yields a usable goal. Invalid/non-array input yields [].
+function sanitizePlannedLumpSums(input) {
+  if (!Array.isArray(input)) return [];
+  const out = [];
+  for (const raw of input) {
+    if (out.length >= 10) break;
+    if (!raw || typeof raw !== "object") continue;
+    const amount = Number(raw.amount);
+    if (!Number.isFinite(amount) || amount < 0) continue;
+    const yearNum = Number(raw.year);
+    if (!Number.isFinite(yearNum)) continue;
+    const year = clamp(Math.round(yearNum), 1, 80);
+    const inflate = Number(raw.inflate) === 1 ? 1 : 0;
+    const name = (typeof raw.name === "string" ? raw.name : "").trim().slice(0, 40);
+    const entry = { name, amount, year, inflate };
+    if (raw.id !== undefined && raw.id !== null) entry.id = raw.id;
+    out.push(entry);
+  }
+  return out;
+}
+
+// fin-8fb F3 — resolves the effective goals array for a given state: the
+// sanitized plannedLumpSums array wins when non-empty; otherwise the legacy
+// single-goal triple (plannedLumpSumAmount/Year/Inflate) is synthesized into
+// a one-entry array so old saved states keep working. A legacy year < 1
+// ("unset" — the pre-F3 code's own signal that the goal never matches any
+// projection year, since actualYear >= 1 always) synthesizes no entry at
+// all rather than a year-0 placeholder: this function must be idempotent
+// (normalizeState resolves once into state.plannedLumpSums; householdPlanProfile
+// then resolves again from that already-resolved state), and a year-0 entry
+// re-run through sanitizePlannedLumpSums would get its year clamped up to 1,
+// turning a previously-inert goal into one that fires in year 1.
+function resolvePlannedLumpSums(state = {}) {
+  const sanitized = sanitizePlannedLumpSums(state.plannedLumpSums);
+  if (sanitized.length > 0) return sanitized;
+  const legacyAmount = Math.max(0, Number(state.plannedLumpSumAmount) || 0);
+  const legacyYear = Math.round(Number(state.plannedLumpSumYear) || 0);
+  if (legacyAmount <= 0 || legacyYear < 1) return [];
+  return [{
+    name: "Planned lump sum",
+    amount: legacyAmount,
+    year: clamp(legacyYear, 1, 80),
+    inflate: Number(state.plannedLumpSumInflate) === 1 ? 1 : 0
+  }];
+}
+
 function normalizeState(input = {}) {
   const next = { ...BASE, ...input };
   NUMERIC_FIELDS.forEach((key) => {
@@ -337,6 +421,11 @@ function normalizeState(input = {}) {
   });
   if (!["auto", "custom"].includes(next.standardDeductionMode)) next.standardDeductionMode = "auto";
   if (!["regime", "normal"].includes(next.shockModel)) next.shockModel = "regime";
+  if (!["fixed", "guardrails", "percentOfCorpus"].includes(next.withdrawalRule)) next.withdrawalRule = "fixed";
+  // fin-8fb F3: normalized state always carries a resolved goals array
+  // (possibly empty) — legacy scalar fields are kept in NUMERIC_FIELDS above
+  // for back-compat loading and are otherwise untouched.
+  next.plannedLumpSums = resolvePlannedLumpSums(input);
   return next;
 }
 
@@ -385,6 +474,10 @@ function householdPlanProfile(state = {}) {
     plannedLumpSum,
     plannedLumpSumYear: Math.max(0, Math.round(Number(state.plannedLumpSumYear) || 0)),
     plannedLumpSumInflate: Number(state.plannedLumpSumInflate) === 1,
+    // fin-8fb F3: multi-goal array, active only under the household plan —
+    // same scoping the legacy single-goal fields above already had (goals
+    // never fire outside useHouseholdPlan; see plannedLumpSumForYear).
+    plannedLumpSums: useHouseholdPlan ? resolvePlannedLumpSums(state) : [],
     // Q53 fin-711: in household mode, derive longevity from joint-life expectancy
     // (max(0, 90-retireeAge), max(0, 90-spouseAge)) → last-survivor basis.
     // Use max of age-derived and user-input longevityYears (conservative).
@@ -502,6 +595,56 @@ function paramsForProjectionYear(params = {}, year = 1) {
     ...glideParams,
     annualRate: Number.isFinite(Number(override.annualRate)) ? Number(override.annualRate) : glideParams.annualRate
   };
+}
+
+// fin-8fb F4 — Historical Backtest Lab: optional per-year historical
+// inflation override. `params.sequenceInflationOverrides` is an array of
+// per-projection-year inflation percentages (index 0 = year 1's rate),
+// mirroring the `sequenceReturnOverrides` plumbing used for equity/debt
+// returns above. It is absent for every existing caller (Monte Carlo,
+// goldens, UI, default projections) — only calculateHistoricalBacktest sets
+// it when `backtestUseHistoricalInflation === 1`. `yearsElapsed` may be
+// fractional (used by SWP's monthly loop and buildMonthlyLedger's per-month
+// synthesis); a whole year's contribution always uses that year's own
+// override rate, and any fractional remainder compounds at the rate of the
+// year currently in progress, so the function is continuous across year
+// boundaries. When the override array is absent this degrades to the exact
+// pre-existing `Math.pow(1 + inflation, yearsElapsed)` expression byte-for-
+// byte, so every caller that never sets sequenceInflationOverrides keeps
+// identical floating-point output.
+function cumulativeInflationFactor(params, yearsElapsed) {
+  const inflation = (Number(params.inflation) || 0) / 100;
+  const overrides = Array.isArray(params.sequenceInflationOverrides) ? params.sequenceInflationOverrides : null;
+  if (!overrides || !overrides.length) return Math.pow(1 + inflation, yearsElapsed);
+  const safeYears = Math.max(0, Number(yearsElapsed) || 0);
+  const wholeYears = Math.floor(safeYears);
+  const frac = safeYears - wholeYears;
+  let factor = 1;
+  for (let y = 1; y <= wholeYears; y++) {
+    const idx = Math.min(y, overrides.length) - 1;
+    const rate = Number.isFinite(Number(overrides[idx])) ? Number(overrides[idx]) / 100 : inflation;
+    factor *= (1 + rate);
+  }
+  if (frac > 0) {
+    const idx = Math.min(wholeYears + 1, overrides.length) - 1;
+    const rate = Number.isFinite(Number(overrides[idx])) ? Number(overrides[idx]) / 100 : inflation;
+    factor *= Math.pow(1 + rate, frac);
+  }
+  return factor;
+}
+
+// fin-8fb F4 — the marginal (single-year, non-cumulative) historical
+// inflation rate for one projection year, used by resolveDynamicSpending's
+// guardrails held-inflation-factor step (which advances one compounding step
+// at a time rather than recomputing a fresh cumulative factor). Degrades to
+// the plain assumed rate when no override is present.
+function historicalInflationRateForYear(params, year) {
+  const inflation = (Number(params.inflation) || 0) / 100;
+  const overrides = Array.isArray(params.sequenceInflationOverrides) ? params.sequenceInflationOverrides : null;
+  if (!overrides || !overrides.length) return inflation;
+  const idx = Math.min(Math.max(1, Math.round(Number(year) || 1)), overrides.length) - 1;
+  const rate = Number(overrides[idx]);
+  return Number.isFinite(rate) ? rate / 100 : inflation;
 }
 
 function annualPortfolioIncomeRate(params) {
@@ -672,6 +815,43 @@ function applyAndUpdateCarryForwardPool(pool, currentAY, grossStcg, grossLtcg, n
   };
 }
 
+// fin-8fb F1 — §74 carry-forward, live in projections.
+// AY 2026-27 anchors projection year 1; each subsequent projection year
+// advances the assessment year by one (year 2 -> AY 2027-28, etc).
+const BASE_ASSESSMENT_YEAR = 2027;
+function assessmentYearForProjectionYear(year) {
+  return BASE_ASSESSMENT_YEAR + (Math.round(Number(year) || 1) - 1);
+}
+
+// fin-8fb F1 — apply the §74 pool ONCE per projection year, at the year
+// boundary, against that year's fully-aggregated streams.
+//
+// Why once, and only here: calculateTaxProfile -> calculateRetireeTaxProfile
+// (or the flat/override modes) -> netCapitalGainStreams mutates the pool it
+// is given (expires stale entries, consumes them against this call's gains,
+// then records this call's residual loss) as a side effect of every single
+// invocation. previewLotSale/redeemNetFromBucket/estimatePrincipalSaleForNet
+// call the tax-profile machinery many times per month (bisection search on
+// candidate sale amounts, plus a separate "before" and "after" profile per
+// lot) to size a single redemption. Threading a live, mutating pool into the
+// params used by that hot path would consume/record pool entries dozens of
+// times over for what is logically one year's transactions.
+// Comparing a pool-free profile against a pool-attached profile computed on
+// the IDENTICAL final streams isolates exactly the incremental benefit of
+// carry-forward, and commits the pool mutation exactly once — the "before"
+// call never touches the pool (no carryForwardPool key), so it cannot
+// double-consume or double-record.
+function applyYearEndCarryForward(pool, yearParams, finalStreams, year) {
+  const currentAY = assessmentYearForProjectionYear(year);
+  const noPoolProfile = calculateTaxProfile(yearParams, finalStreams);
+  const pooledParams = { ...yearParams, carryForwardPool: pool, currentAY };
+  const withPoolProfile = calculateTaxProfile(pooledParams, finalStreams);
+  return {
+    taxBenefit: Math.max(0, noPoolProfile.totalTax - withPoolProfile.totalTax),
+    taxableGainBenefit: Math.max(0, noPoolProfile.taxableInvestmentIncome - withPoolProfile.taxableInvestmentIncome)
+  };
+}
+
 function netCapitalGainStreams(streams = {}, params = {}) {
   const clean = normalizeTaxStreams(streams);
   const gains = {
@@ -693,7 +873,7 @@ function netCapitalGainStreams(streams = {}, params = {}) {
     const currentAY = Math.round(Number(params.currentAY) || 0) || new Date().getFullYear() + 1;
     const grossStcg = gains.equityStcg;
     const grossLtcg = gains.equityLtcg + gains.listedBondLtcg;
-    const newStcl = longSetoff.remaining > 0 ? 0 : shortSetoff.remaining;  // residual ST loss after within-year setoff
+    const newStcl = shortSetoff.remaining;  // residual ST loss after within-year setoff — §74/§70/§71 track STCL and LTCL as INDEPENDENT pools; must not be zeroed by a coexisting LTCL residual (fin-8fb.11 BLOCKER-A)
     const newLtcl = longSetoff.remaining;  // residual LT loss after within-year setoff
     const cf = applyAndUpdateCarryForwardPool(pool, currentAY, grossStcg, grossLtcg, newStcl, newLtcl);
     // Overwrite gains with carry-forward-reduced values
@@ -730,8 +910,20 @@ function normalizeTaxRuleRate(value, fallback = 0) {
   return numeric > 1 ? numeric / 100 : numeric;
 }
 
+// fin-8fb.11 MAJOR (rt-security #2, §4.2) — user-pasted tax-law JSON has no
+// intrinsic size limit. Without a cap, an adversarial slab/surcharge array or
+// product-rule key set inflates iteration cost on slabTaxBeforeCess's hot
+// path (called once per Monte Carlo sample-year). These caps sit far above
+// any real ruleset (DEFAULT_TAX_LAW's largest array is 7 entries), so they
+// never constrain a legitimate tax-law edit -- they only bound a
+// resource-consumption vector from untrusted input.
+const MAX_TAX_LAW_SLAB_BANDS = 64;
+const MAX_TAX_LAW_SURCHARGE_BANDS = 32;
+const MAX_TAX_LAW_PRODUCT_RULE_KEYS = 64;
+const MAX_TAX_LAW_TEXT_FIELD_LENGTH = 2000;
+
 function cleanSlabArray(slabs, fallback) {
-  const source = Array.isArray(slabs) && slabs.length ? slabs : fallback;
+  const source = Array.isArray(slabs) && slabs.length ? slabs.slice(0, MAX_TAX_LAW_SLAB_BANDS) : fallback;
   const cleaned = source.map((band) => ({
     upto: band.upto === null || band.upto === undefined ? Infinity : Math.max(0, Number(band.upto) || 0),
     rate: normalizeTaxRuleRate(band.rate)
@@ -740,7 +932,7 @@ function cleanSlabArray(slabs, fallback) {
 }
 
 function cleanSurchargeBands(bands, fallback) {
-  const source = Array.isArray(bands) && bands.length ? bands : fallback;
+  const source = Array.isArray(bands) && bands.length ? bands.slice(0, MAX_TAX_LAW_SURCHARGE_BANDS) : fallback;
   const cleaned = source.map((band) => ({
     above: Math.max(0, Number(band.above) || 0),
     upto: band.upto === null || band.upto === undefined ? Infinity : Math.max(0, Number(band.upto) || 0),
@@ -759,7 +951,7 @@ function cleanSurchargeBands(bands, fallback) {
 
 function cleanProductTaxRules(rules = {}, fallback = DEFAULT_TAX_LAW.productTaxRules) {
   const cleaned = { ...fallback };
-  Object.entries(rules || {}).forEach(([key, rule]) => {
+  Object.entries(rules || {}).slice(0, MAX_TAX_LAW_PRODUCT_RULE_KEYS).forEach(([key, rule]) => {
     if (!rule || typeof rule !== "object") return;
     cleaned[key] = {
       ...cleaned[key],
@@ -779,10 +971,10 @@ function sanitizeTaxLaw(raw = {}) {
   const deductions = raw.deductions || {};
   const tds = raw.tdsDefaults || {};
   return {
-    version: String(raw.version || fallback.version),
-    source: String(raw.source || fallback.source),
-    sourceUrl: String(raw.sourceUrl || fallback.sourceUrl),
-    updatedOn: String(raw.updatedOn || fallback.updatedOn),
+    version: String(raw.version || fallback.version).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
+    source: String(raw.source || fallback.source).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
+    sourceUrl: String(raw.sourceUrl || fallback.sourceUrl).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
+    updatedOn: String(raw.updatedOn || fallback.updatedOn).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
     newRegimeSlabs: cleanSlabArray(raw.newRegimeSlabs, fallback.newRegimeSlabs),
     oldRegimeSlabs: {
       below60: cleanSlabArray(old.below60, fallback.oldRegimeSlabs.below60),
@@ -829,8 +1021,8 @@ function sanitizeTaxLaw(raw = {}) {
     section87AInterpretations: { ...fallback.section87AInterpretations, ...(raw.section87AInterpretations || {}) },
     productTaxRules: cleanProductTaxRules(raw.productTaxRules, fallback.productTaxRules),
     cess: normalizeTaxRuleRate(raw.cess ?? fallback.cess),
-    debtMfTaxation: String(raw.debtMfTaxation || fallback.debtMfTaxation),
-    notes: String(raw.notes || fallback.notes)
+    debtMfTaxation: String(raw.debtMfTaxation || fallback.debtMfTaxation).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH),
+    notes: String(raw.notes || fallback.notes).slice(0, MAX_TAX_LAW_TEXT_FIELD_LENGTH)
   };
 }
 
@@ -1458,11 +1650,20 @@ function monthlyCashNeedForYear(params = {}, year = 1) {
   return Math.max(0, profile.expenses.essential + profile.expenses.discretionary + profile.expenses.spouse + dependantNeed - profile.incomeFloor);
 }
 
+// fin-8fb F3: sums every goal whose year matches this projection year, each
+// inflated (or not) per its own entry flag — same inflationFactor convention
+// the prior single-goal implementation used.
 function plannedLumpSumForYear(params = {}, year = 1, inflationFactor = 1) {
   const profile = params.householdProfile || householdPlanProfile(params);
+  if (!profile.useHouseholdPlan) return 0;
   const actualYear = Math.max(1, Math.round(Number(params.sequenceYearOffset) || 0) + year);
-  if (!profile.useHouseholdPlan || profile.plannedLumpSum <= 0 || profile.plannedLumpSumYear !== actualYear) return 0;
-  return profile.plannedLumpSum * (profile.plannedLumpSumInflate ? inflationFactor : 1);
+  const goals = Array.isArray(profile.plannedLumpSums) ? profile.plannedLumpSums : [];
+  let total = 0;
+  for (const goal of goals) {
+    if (goal.year !== actualYear) continue;
+    total += goal.amount * (goal.inflate ? inflationFactor : 1);
+  }
+  return total;
 }
 
 function targetAnnualCashForYear(params = {}, year = 1, inflationFactor = 1) {
@@ -1476,11 +1677,157 @@ function targetMonthlyCashForMonth(params = {}, year = 1, month = 1, inflationFa
   return recurring + (month === 1 ? plannedLumpSumForYear(params, year, inflationFactor) : 0);
 }
 
+// fin-8fb F2 — dynamic withdrawal rules (guardrails / percent-of-corpus).
+//
+// Pure per-year decision helper. Engines hold spendingMultiplier,
+// heldInflationFactor, initialRate, and priorYearReturn as LOCAL variables
+// (never on the shared params object — same discipline as F1's
+// carryForwardPool) and call this once per projection year, at the year
+// boundary, to resolve THIS year's recurring annual cash target and the
+// state to carry into next year.
+//
+// Scope: operates ONLY on the recurring cash need (monthlyCashNeedForYear x
+// 12, escalated per rule). Planned lump sums are never scaled by the
+// multiplier or by percentOfCorpus — callers add plannedLumpSumForYear(...)
+// on top of this function's annualCashTarget, using the natural (un-held,
+// un-multiplied) inflation factor, exactly as targetAnnualCashForYear does
+// today.
+//
+// "fixed" mode short-circuits before any rule-specific math and reproduces
+// the exact expression targetAnnualCashForYear/targetMonthlyCashForMonth
+// already compute (same operands, same order) so engines integrating this
+// helper stay byte-identical to pre-F2 output at default state.
+//
+// Guardrails semantics (simplified Guyton-Klinger), evaluated at year >= 2
+// once initialRate is established from year 1:
+//   1. plannedAnnual = baseAnnualCash x candidateInflationFactor x multiplier
+//      (candidateInflationFactor = one more compounding step on top of last
+//      year's ACTUALLY-APPLIED, possibly-held, factor -- see below).
+//      currentRate = plannedAnnual / openingCorpus.
+//   2. Capital-preservation cut: currentRate > initialRate x (1+band) =>
+//      multiplier x= (1-adjust), guardrailAction "cut".
+//   3. Prosperity raise: currentRate < initialRate x (1-band) =>
+//      multiplier x= (1+adjust), guardrailAction "raise".
+//   4. Otherwise, inflation-hold: if last year's portfolio return was
+//      negative AND currentRate is still above initialRate, withhold this
+//      year's inflation escalation (freeze the held factor at last year's
+//      level instead of advancing it) -- guardrailAction "inflation-hold".
+//      Checked only when neither band rule fired, so an engineered band
+//      breach always reports as "cut"/"raise" even in a prior-loss year.
+//   5. multiplier is always clamped to [0.5, 2.0].
+// The held inflation factor is genuinely stateful: a freeze is a permanent
+// one-year skip, not a deferred catch-up -- later years keep compounding
+// from the frozen level, matching classic Guyton-Klinger.
+//
+// percentOfCorpus: annualCashTarget = percentOfCorpusRate% x openingCorpus,
+// every year (no multiplier, no band/hold state). inflateWithdrawals is
+// bypassed by design (documented in model-contract.md).
+//
+// Floor (both dynamic rules): spendingFloorMonthly is expressed in today's
+// rupees and always escalates by the NATURAL (un-held) inflation factor,
+// regardless of rule or holdback, then annualCashTarget is floored at
+// floorMonthly x 12 x naturalInflationFactor.
+function resolveDynamicSpending({
+  rule = "fixed",
+  year = 1,
+  openingCorpus = 0,
+  baseAnnualCash = 0,
+  inflationFactor = 1,
+  heldInflationFactor = 1,
+  initialRate = 0,
+  multiplier = 1,
+  priorYearReturn = null,
+  params = {}
+} = {}) {
+  const naturalInflationFactor = Number(params.inflateWithdrawals) === 1 ? (Number(inflationFactor) || 0) : 1;
+  const safeMultiplier = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+  const safeHeld = Number.isFinite(heldInflationFactor) && heldInflationFactor > 0 ? heldInflationFactor : 1;
+  const floorMonthly = Math.max(0, Number(params.spendingFloorMonthly) || 0);
+  const floorAnnual = floorMonthly > 0 ? floorMonthly * 12 * naturalInflationFactor : 0;
+
+  if (rule !== "guardrails" && rule !== "percentOfCorpus") {
+    // fixed (and any unrecognized rule, guarded upstream in normalizeState):
+    // identical expression to targetAnnualCashForYear's recurring term.
+    return {
+      annualCashTarget: baseAnnualCash * naturalInflationFactor,
+      nextMultiplier: 1,
+      nextInflationFactor: naturalInflationFactor,
+      inflationHeld: false,
+      guardrailAction: "none"
+    };
+  }
+
+  if (rule === "percentOfCorpus") {
+    const rate = Math.max(0, Number(params.percentOfCorpusRate) || 0) / 100;
+    const raw = rate * Math.max(0, openingCorpus);
+    return {
+      annualCashTarget: Math.max(raw, floorAnnual),
+      nextMultiplier: 1,
+      nextInflationFactor: naturalInflationFactor,
+      inflationHeld: false,
+      guardrailAction: "none"
+    };
+  }
+
+  // guardrails
+  const bandPct = Math.max(0, Number(params.guardrailBandPct) || 0) / 100;
+  const adjustPct = clamp(Number(params.guardrailAdjustPct) || 0, 0, 100) / 100;
+  // fin-8fb F4: uses the historical per-year rate when
+  // sequenceInflationOverrides is set (backtest), else the plain assumed
+  // rate — identical to pre-F4 behavior when no override is present.
+  const inflationRate = Number(params.inflateWithdrawals) === 1 ? historicalInflationRateForYear(params, year) : 0;
+  // One more compounding step on top of last year's actually-applied factor
+  // (not a fresh Math.pow(1+g, year-1) recompute) so a prior freeze is a
+  // permanent, non-catch-up reduction. Year 1 has no prior state to step
+  // from, so it takes the natural (calendar) factor directly.
+  const candidateInflationFactor = year <= 1 ? naturalInflationFactor : safeHeld * (1 + inflationRate);
+
+  let nextMultiplier = safeMultiplier;
+  let nextInflationFactor = candidateInflationFactor;
+  let inflationHeld = false;
+  let guardrailAction = "none";
+
+  // fin-8fb.11 BLOCKER-B: a depleted (<=0) opening corpus has no spending
+  // rate to evaluate -- plannedAnnual / 0 is not "under-spending", it's an
+  // undefined rate. Without this guard, currentRate fell back to 0, which
+  // always reads as "below the lower band", so a fully depleted portfolio
+  // ratcheted spendingMultiplier upward with guardrailAction "raise" every
+  // year forever. Freeze instead: skip the whole band/inflation-hold
+  // decision (multiplier and guardrailAction keep their pre-block defaults
+  // above -- unchanged and "none").
+  if (year >= 2 && initialRate > 0 && openingCorpus > 0) {
+    const plannedAnnual = baseAnnualCash * candidateInflationFactor * safeMultiplier;
+    const currentRate = plannedAnnual / openingCorpus;
+    const upperBand = initialRate * (1 + bandPct);
+    const lowerBand = initialRate * (1 - bandPct);
+
+    if (currentRate > upperBand) {
+      nextMultiplier = clamp(safeMultiplier * (1 - adjustPct), 0.5, 2.0);
+      guardrailAction = "cut";
+    } else if (currentRate < lowerBand) {
+      nextMultiplier = clamp(safeMultiplier * (1 + adjustPct), 0.5, 2.0);
+      guardrailAction = "raise";
+    } else if (Number.isFinite(priorYearReturn) && priorYearReturn < 0 && currentRate > initialRate) {
+      nextInflationFactor = safeHeld;
+      inflationHeld = true;
+      guardrailAction = "inflation-hold";
+    }
+  }
+
+  const annualBeforeFloor = baseAnnualCash * nextInflationFactor * nextMultiplier;
+  return {
+    annualCashTarget: Math.max(annualBeforeFloor, floorAnnual),
+    nextMultiplier,
+    nextInflationFactor,
+    inflationHeld,
+    guardrailAction
+  };
+}
+
 function calculateInterestPlan(params) {
   const years = Math.round(Number(params.years) || 0);
   const effYield = effectiveYield(params);
   const withdrawalShare = (Number(params.withdrawRate) || 0) / 100;
-  const inflation = (Number(params.inflation) || 0) / 100;
   const baseTax = yearlyTax(Number(params.principal) || 0, params);
   const taxShare = baseTax.interest > 0 ? baseTax.tax / baseTax.interest : 0;
   const baseContribution = Number(params.annualContribution) || 0;
@@ -1494,8 +1841,20 @@ function calculateInterestPlan(params) {
   let cumInterest = 0;
   let cumTax = 0;
   let cumContributions = 0;
+  // fin-8fb F1 — §74 carry-forward pool: local to this run (never on the
+  // shared `params` object), so it resets automatically for every
+  // calculateInterestPlan invocation, including every Monte Carlo path.
+  const carryForwardPool = { stclPool: [], ltclPool: [] };
+  // fin-8fb F2 — dynamic withdrawal rule state: local to this run, same
+  // discipline as the carry-forward pool (never on shared params, resets
+  // per Monte Carlo path). See resolveDynamicSpending for semantics.
+  const dynamicRule = ["guardrails", "percentOfCorpus"].includes(params.withdrawalRule) ? params.withdrawalRule : "fixed";
+  let dynMultiplier = 1;
+  let dynHeldInflationFactor = 1;
+  let dynInitialRate = 0;
+  let dynPriorYearReturn = null;
 
-  rows.push({ year: 0, opening, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, cashCoverage: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, targetCash: 0 });
+  rows.push({ year: 0, opening, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, cashCoverage: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, targetCash: 0, spendingMultiplier: 1, guardrailAction: "none" });
 
   for (let year = 1; year <= years; year++) {
     const yearParams = paramsForProjectionYear(params, year);
@@ -1503,17 +1862,56 @@ function calculateInterestPlan(params) {
     const taxCalc = yearlyTax(opening, yearParams);
     const interest = taxCalc.interest;
     const availableIncome = Math.max(0, taxCalc.spendableIncome ?? (taxCalc.realizedIncome - taxCalc.tax));
-    // δ=1: withdrawal inflation factor uses (1+g)^(year-1) so Year-1 = base (uninflated)
-    const withdrawalInflationFactor = Math.pow(1 + inflation, year - 1);
+    // δ=1: withdrawal inflation factor uses (1+g)^(year-1) so Year-1 = base
+    // (uninflated). fin-8fb F4: routes through cumulativeInflationFactor so a
+    // backtest cohort's sequenceInflationOverrides compounds year-by-year;
+    // degrades to the exact pre-F4 Math.pow expression otherwise.
+    const withdrawalInflationFactor = cumulativeInflationFactor(params, year - 1);
     // real-corpus deflation factor stays (1+g)^year
-    const inflationFactor = Math.pow(1 + inflation, year);
-    const targetAnnual = targetAnnualCashForYear(yearParams, year, withdrawalInflationFactor);
+    const inflationFactor = cumulativeInflationFactor(params, year);
+    let targetAnnual;
+    let spendingMultiplier = 1;
+    let guardrailAction = "none";
+    if (dynamicRule === "fixed") {
+      targetAnnual = targetAnnualCashForYear(yearParams, year, withdrawalInflationFactor);
+    } else {
+      const dyn = resolveDynamicSpending({
+        rule: dynamicRule,
+        year,
+        openingCorpus: opening,
+        baseAnnualCash: monthlyCashNeedForYear(yearParams, year) * 12,
+        inflationFactor: withdrawalInflationFactor,
+        heldInflationFactor: dynHeldInflationFactor,
+        initialRate: dynInitialRate,
+        multiplier: dynMultiplier,
+        priorYearReturn: dynPriorYearReturn,
+        params: yearParams
+      });
+      dynMultiplier = dyn.nextMultiplier;
+      dynHeldInflationFactor = dyn.nextInflationFactor;
+      if (year === 1) dynInitialRate = opening > 0 ? dyn.annualCashTarget / opening : 0;
+      spendingMultiplier = dyn.nextMultiplier;
+      guardrailAction = dyn.guardrailAction;
+      targetAnnual = dyn.annualCashTarget + plannedLumpSumForYear(yearParams, year, withdrawalInflationFactor);
+    }
+    dynPriorYearReturn = opening > 0 ? interest / opening : 0;
     const desiredWithdrawal = params.cashMode === "monthlyTarget" ? targetAnnual : availableIncome * withdrawalShare;
     const incomeWithdrawal = Math.min(availableIncome, Math.max(0, desiredWithdrawal));
     const sale = Number(params.allowPrincipalDrawdown) === 1
       ? estimatePrincipalSaleForNet(Math.max(0, desiredWithdrawal - incomeWithdrawal), opening, yearParams, taxCalc.streams)
       : estimatePrincipalSaleForNet(0, opening, yearParams, taxCalc.streams);
-    const tax = taxCalc.tax + sale.tax;
+    const grossTax = taxCalc.tax + sale.tax;
+    // fin-8fb F1 — §74 carry-forward true-up: applied ONCE per year, against
+    // the year's fully-aggregated streams (equity/debt income + principal-
+    // drawdown sale streams). See applyYearEndCarryForward doc comment: this
+    // engine's estimatePrincipalSaleForNet already runs its own bisection
+    // preview loop internally, so the pool must not be attached to yearParams
+    // used there — it would be mutated once per preview trial instead of once
+    // per year.
+    const yearFinalStreams = addTaxStreams(taxCalc.streams, sale.streams);
+    const yearCarryForward = applyYearEndCarryForward(carryForwardPool, yearParams, yearFinalStreams, year);
+    const tax = Math.max(0, grossTax - yearCarryForward.taxBenefit);
+    const taxableGainBenefit = yearCarryForward.taxableGainBenefit;
     const netInterest = taxCalc.realizedIncome - taxCalc.tax;
     const principalDrawdown = sale.gross;
     const withdrawal = incomeWithdrawal + sale.net;
@@ -1537,7 +1935,7 @@ function calculateInterestPlan(params) {
     cumInterest += interest;
     cumTax += tax;
     cumContributions += contribution;
-    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest, withdrawal, reinvested, contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown, taxableGain: (taxCalc.taxProfile?.taxableInvestmentIncome || 0) + sale.taxableGain, realizedGain: taxCalc.realizedIncome + sale.realizedGain, unrealizedGrowth: taxCalc.unrealizedGrowth, capitalRecovered: Math.max(0, principalDrawdown - sale.realizedGain), ltcgExemptionUsed: (taxCalc.taxProfile?.ltcgExemptionUsed || 0) + sale.ltcgExemptionUsed, basicExemptionUsed: (taxCalc.taxProfile?.basicExemptionUsed || 0) + sale.basicExemptionUsed, rebateUsed: (taxCalc.taxProfile?.rebateUsed || 0) + sale.rebateUsed, rebateLost: (taxCalc.taxProfile?.rebateLost || 0) + sale.rebateLost, section80TTBUsed: taxCalc.taxProfile?.section80TTBUsed || 0, section80TTBDisallowed: taxCalc.taxProfile?.section80TTBDisallowed || 0, grossRedemption: principalDrawdown, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual });
+    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest, withdrawal, reinvested, contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown, taxableGain: Math.max(0, (taxCalc.taxProfile?.taxableInvestmentIncome || 0) + sale.taxableGain - taxableGainBenefit), realizedGain: taxCalc.realizedIncome + sale.realizedGain, unrealizedGrowth: taxCalc.unrealizedGrowth, capitalRecovered: Math.max(0, principalDrawdown - sale.realizedGain), ltcgExemptionUsed: (taxCalc.taxProfile?.ltcgExemptionUsed || 0) + sale.ltcgExemptionUsed, basicExemptionUsed: (taxCalc.taxProfile?.basicExemptionUsed || 0) + sale.basicExemptionUsed, rebateUsed: (taxCalc.taxProfile?.rebateUsed || 0) + sale.rebateUsed, rebateLost: (taxCalc.taxProfile?.rebateLost || 0) + sale.rebateLost, section80TTBUsed: taxCalc.taxProfile?.section80TTBUsed || 0, section80TTBDisallowed: taxCalc.taxProfile?.section80TTBDisallowed || 0, grossRedemption: principalDrawdown, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual, spendingMultiplier, guardrailAction });
   }
 
   const final = rows[rows.length - 1];
@@ -1681,17 +2079,100 @@ function transferBucketValueWithoutTax(fromBucket, toBucket, amount) {
   return transfer;
 }
 
-function rebalanceBucketsToShare(buckets, targetEquityShare) {
+// fin-8fb F5 — zero-result shape shared by every rebalanceBucketsToShare
+// return path (no-op deadband, no-op empty portfolio, and the tax-free
+// default path) so callers can unconditionally accumulate its fields.
+function zeroRebalanceResult() {
+  return { gross: 0, tax: 0, net: 0, realizedGain: 0, taxableGain: 0, exemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, capitalRecovered: 0, longTermGain: 0, shortTermGain: 0 };
+}
+
+// fin-8fb F5 — sells lots FIFO out of `bucket` up to a GROSS sale value of
+// `grossTarget` (capped at what the bucket holds), realizing each lot's
+// gain/loss through previewLotSale(mutate=true) so it lands in the SAME
+// context.streams the monthly redemption loop and F1's year-end carry-
+// forward true-up both read. Unlike redeemNetFromBucket (which sizes a sale
+// to hit a target NET cash figure via bisection), this targets a GROSS sale
+// value directly — no search needed, since the caller wants the selling
+// bucket's value to drop by exactly `grossTarget`, not to net a specific
+// amount of cash after tax.
+function sellBucketGrossWithTax(bucket, grossTarget, context) {
+  let remaining = Math.max(0, grossTarget);
+  const totals = zeroRebalanceResult();
+  for (const lot of bucket.lots) {
+    if (remaining <= 0 || lot.units <= 0) continue;
+    const grossAvailable = lot.units * bucket.nav;
+    const sale = Math.min(grossAvailable, remaining);
+    if (sale <= 0) continue;
+    const applied = previewLotSale(bucket, lot, sale, context, true);
+    lot.units -= applied.unitsSold;
+    totals.gross += sale;
+    totals.tax += applied.tax;
+    totals.realizedGain += applied.realizedGain;
+    totals.taxableGain += applied.taxableGain;
+    totals.exemptionUsed += applied.exemptionUsed;
+    totals.basicExemptionUsed += applied.basicExemptionUsed;
+    totals.rebateUsed += applied.rebateUsed;
+    totals.rebateLost += applied.rebateLost;
+    totals.capitalRecovered += Math.max(0, sale - Math.max(0, applied.realizedGain)); // fin-m66: loss lot: entire sale is capital recovery
+    totals.longTermGain += applied.longTermGain;
+    totals.shortTermGain += applied.shortTermGain;
+    remaining -= sale;
+  }
+  bucket.lots = bucket.lots.filter((lot) => lot.units > 1e-6);
+  totals.net = Math.max(0, totals.gross - totals.tax);
+  return totals;
+}
+
+// fin-8fb F5 — taxed counterpart of transferBucketValueWithoutTax. The
+// selling bucket's value drops by exactly `amount` (a real gross sale,
+// capped at what it holds, same sizing convention as the tax-free path);
+// the buying bucket receives the sale's NET-of-tax proceeds as a new
+// contribution lot at the current NAV (same mechanism addContributionLot
+// already uses for SIP contributions and the F1 carry-forward tax credit).
+function transferBucketValueWithTax(fromBucket, toBucket, amount, context) {
+  const available = bucketValue(fromBucket);
+  const transfer = Math.min(Math.max(0, amount), available);
+  if (transfer <= 0 || available <= 0) return zeroRebalanceResult();
+  const sale = sellBucketGrossWithTax(fromBucket, transfer, context);
+  addContributionLot(toBucket, sale.net);
+  return sale;
+}
+
+// fin-8fb F5 — opt-in tax-aware rebalancing (params.rebalanceTaxAware).
+// `taxAware`/`context` are optional so every pre-F5 call site (and any
+// caller that only wants the tax-free behavior) keeps working unchanged.
+function rebalanceBucketsToShare(buckets, targetEquityShare, taxAware = false, context = null) {
   const total = bucketValue(buckets.equity) + bucketValue(buckets.debt);
-  if (total <= 0) return;
+  if (total <= 0) return zeroRebalanceResult();
   const desiredEquity = total * clamp(targetEquityShare, 0, 1);
   const currentEquity = bucketValue(buckets.equity);
-  if (Math.abs(desiredEquity - currentEquity) <= total * 0.002) return;
+  if (Math.abs(desiredEquity - currentEquity) <= total * 0.002) return zeroRebalanceResult();
+  if (taxAware && context) {
+    // Convention: the transfer is sized on GROSS sale value — the selling
+    // bucket's value always drops by exactly the same rebalance amount the
+    // tax-free path below would move, so tax comes out of sale proceeds and
+    // the buying bucket receives (amount - tax). Portfolio total after a
+    // taxed rebalance is therefore (before - tax). The alternative —
+    // grossing up the sale so the buyer receives the FULL pre-tax amount —
+    // was rejected: it oversells the leaving bucket beyond what the target
+    // allocation calls for, distorting the resulting allocation.
+    if (desiredEquity > currentEquity) {
+      return transferBucketValueWithTax(buckets.debt, buckets.equity, desiredEquity - currentEquity, context);
+    }
+    return transferBucketValueWithTax(buckets.equity, buckets.debt, currentEquity - desiredEquity, context);
+  }
+  // Default (tax-free) path — unchanged since before fin-8fb F5. Simplification:
+  // an in-kind rebalance transfer is treated as if no sale occurred (no
+  // realized gain/loss, no tax). This is NOT how a real redemption-and-
+  // repurchase rebalance is taxed in India; it is a deliberate planning-grade
+  // simplification kept as the default so pre-F5 output stays byte-identical.
+  // Set params.rebalanceTaxAware = 1 to model the sale leg's real tax cost.
   if (desiredEquity > currentEquity) {
     transferBucketValueWithoutTax(buckets.debt, buckets.equity, desiredEquity - currentEquity);
   } else {
     transferBucketValueWithoutTax(buckets.equity, buckets.debt, currentEquity - desiredEquity);
   }
+  return zeroRebalanceResult();
 }
 
 function previewLotSale(bucket, lot, sale, context, mutate = false) {
@@ -1881,7 +2362,6 @@ function finalizeModel(rows, params, effYield, cumWithdrawals, cumTax, cumContri
 
 function calculateSwpPlan(params) {
   const years = Math.round(Number(params.years) || 0);
-  const inflation = (Number(params.inflation) || 0) / 100;
   const equityShare = Number(params.useAssetReturns) === 1 ? (Number(params.equityShare) || 0) / 100 : 0;
   const principal = Number(params.principal) || 0;
   const buckets = {
@@ -1894,35 +2374,100 @@ function calculateSwpPlan(params) {
   let cumInterest = 0;
   let cumTax = 0;
   let cumContributions = 0;
-  rows.push({ year: 0, opening: principal, effYield: effectiveYield(params), interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing: principal, realClosing: principal, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0 });
+  // fin-8fb F1 — §74 carry-forward pool: local to this run (never on the
+  // shared `params` object), so it resets automatically for every
+  // calculateSwpPlan invocation, including every Monte Carlo path.
+  const carryForwardPool = { stclPool: [], ltclPool: [] };
+  // fin-8fb F2 — dynamic withdrawal rule state: local to this run, same
+  // discipline as the carry-forward pool. See resolveDynamicSpending.
+  const dynamicRule = ["guardrails", "percentOfCorpus"].includes(params.withdrawalRule) ? params.withdrawalRule : "fixed";
+  let dynMultiplier = 1;
+  let dynHeldInflationFactor = 1;
+  let dynInitialRate = 0;
+  let dynPriorYearReturn = null;
+  rows.push({ year: 0, opening: principal, effYield: effectiveYield(params), interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing: principal, realClosing: principal, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0, spendingMultiplier: 1, guardrailAction: "none", rebalanceGross: 0, rebalanceTax: 0 });
 
   for (let year = 1; year <= years; year++) {
     const yearParams = paramsForProjectionYear(params, year);
     setBucketGrowthRate(buckets.equity, swpBucketGrowthRate(yearParams, "equity"));
     setBucketGrowthRate(buckets.debt, swpBucketGrowthRate(yearParams, "debt"));
-    rebalanceBucketsToShare(buckets, Number(yearParams.useAssetReturns) === 1 ? clamp((Number(yearParams.equityShare) || 0) / 100, 0, 1) : 0);
-    const opening = bucketValue(buckets.equity) + bucketValue(buckets.debt);
+    // fin-8fb F5 — the year's tax context is created BEFORE the rebalance
+    // call (it used to be created just after) so a tax-aware rebalance sale
+    // can realize gains/losses through the SAME context.streams the monthly
+    // redemption loop below and F1's year-end carry-forward true-up both
+    // read — this is what makes a rebalance-realized loss net against the
+    // same year's redemption gains and roll into the §74 pool correctly.
+    // This reorder is a no-op for the tax-free default path
+    // (transferBucketValueWithoutTax never reads/writes context), so
+    // default-state output is unaffected; rebalance still runs at year
+    // start, before the monthly loop, exactly as before F5.
     const context = { params: yearParams, streams: emptyTaxStreams() };
+    const rebalance = rebalanceBucketsToShare(
+      buckets,
+      Number(yearParams.useAssetReturns) === 1 ? clamp((Number(yearParams.equityShare) || 0) / 100, 0, 1) : 0,
+      Number(yearParams.rebalanceTaxAware) === 1,
+      context
+    );
+    const opening = bucketValue(buckets.equity) + bucketValue(buckets.debt);
+    // fin-8fb F2 — resolve this year's recurring cash target once, at the
+    // year boundary (before any monthly redemption), exactly mirroring F1's
+    // year-boundary carry-forward commit. "fixed" mode never calls
+    // resolveDynamicSpending's rule math (yearDynamic stays null) so the
+    // month loop below takes the identical targetMonthlyCashForMonth call it
+    // always has, guaranteeing byte-for-byte parity at default state.
+    const yearNaturalInflationFactor = cumulativeInflationFactor(params, year - 1);
+    let yearDynamic = null;
+    let spendingMultiplier = 1;
+    let guardrailAction = "none";
+    if (dynamicRule !== "fixed") {
+      yearDynamic = resolveDynamicSpending({
+        rule: dynamicRule,
+        year,
+        openingCorpus: opening,
+        baseAnnualCash: monthlyCashNeedForYear(yearParams, year) * 12,
+        inflationFactor: yearNaturalInflationFactor,
+        heldInflationFactor: dynHeldInflationFactor,
+        initialRate: dynInitialRate,
+        multiplier: dynMultiplier,
+        priorYearReturn: dynPriorYearReturn,
+        params: yearParams
+      });
+      dynMultiplier = yearDynamic.nextMultiplier;
+      dynHeldInflationFactor = yearDynamic.nextInflationFactor;
+      if (year === 1) dynInitialRate = opening > 0 ? yearDynamic.annualCashTarget / opening : 0;
+      spendingMultiplier = yearDynamic.nextMultiplier;
+      guardrailAction = yearDynamic.guardrailAction;
+    }
+    // fin-8fb F5 — the rebalance sale (if any) already happened above, before
+    // this year's monthly loop, so its tax/gain components seed `annual`
+    // here rather than being added via a += in the month loop. In the
+    // default (tax-free) mode `rebalance` is the all-zero result, so every
+    // seeded field below is identical to the pre-F5 literal `0`. Rebalance
+    // gross/tax are intentionally NOT folded into annual.grossRedemption —
+    // that field means "sold to fund a cash withdrawal", and a rebalance
+    // trade is an internal transfer between buckets, not a cash withdrawal.
     const annual = {
       interest: 0,
-      tax: 0,
+      tax: rebalance.tax,
       withdrawal: 0,
       grossRedemption: 0,
-      realizedGain: 0,
-      taxableGain: 0,
-      ltcgExemptionUsed: 0,
-      capitalRecovered: 0,
-      longTermGain: 0,
-      shortTermGain: 0,
-      basicExemptionUsed: 0,
-      rebateUsed: 0,
-      rebateLost: 0,
+      realizedGain: rebalance.realizedGain,
+      taxableGain: rebalance.taxableGain,
+      ltcgExemptionUsed: rebalance.exemptionUsed,
+      capitalRecovered: rebalance.capitalRecovered,
+      longTermGain: rebalance.longTermGain,
+      shortTermGain: rebalance.shortTermGain,
+      basicExemptionUsed: rebalance.basicExemptionUsed,
+      rebateUsed: rebalance.rebateUsed,
+      rebateLost: rebalance.rebateLost,
       section80TTBUsed: 0,
       section80TTBDisallowed: 0,
       contribution: 0,
       shock: 0,
       targetCash: 0,
-      shortfall: 0
+      shortfall: 0,
+      rebalanceGross: rebalance.gross,
+      rebalanceTax: rebalance.tax
     };
 
     for (let month = 1; month <= 12; month++) {
@@ -1931,11 +2476,29 @@ function calculateSwpPlan(params) {
       const equityGrowth = growBucket(buckets.equity);
       const debtGrowth = growBucket(buckets.debt);
       const interest = equityGrowth + debtGrowth;
-      // δ=1: withdrawal inflation factor uses (monthIndex-1)/12 so Month-1 = base (uninflated)
-      const withdrawalInflationFactor = Math.pow(1 + inflation, (monthIndex - 1) / 12);
+      // δ=1: withdrawal inflation factor uses (monthIndex-1)/12 so Month-1 = base
+      // (uninflated). fin-8fb F4: cumulativeInflationFactor compounds whole
+      // historical years then the in-progress year's rate for the fractional
+      // remainder; degrades to the exact pre-F4 Math.pow expression otherwise.
+      const withdrawalInflationFactor = cumulativeInflationFactor(params, (monthIndex - 1) / 12);
       // real-corpus deflation uses full monthIndex/12
-      const inflationFactor = Math.pow(1 + inflation, monthIndex / 12);
-      const targetMonthly = targetMonthlyCashForMonth(yearParams, year, month, withdrawalInflationFactor);
+      const inflationFactor = cumulativeInflationFactor(params, monthIndex / 12);
+      // fin-8fb F2: guardrails derives the monthly target from the
+      // year-resolved annual figure, re-applying the SAME within-year
+      // continuous escalation ratio that targetMonthlyCashForMonth already
+      // uses for fixed mode (monthly natural factor / year natural factor),
+      // so month 1 of a year always equals annualCashTarget/12 exactly.
+      // percentOfCorpus ignores inflateWithdrawals escalation entirely (its
+      // annualCashTarget is a flat share of opening corpus for the whole
+      // year) so it is converted to monthly/12 with no within-year ratio.
+      // Lump sums are added un-scaled by the multiplier, same as fixed mode.
+      const withinYearRatio = dynamicRule === "percentOfCorpus"
+        ? 1
+        : (yearNaturalInflationFactor > 0 ? withdrawalInflationFactor / yearNaturalInflationFactor : 1);
+      const targetMonthly = yearDynamic
+        ? (yearDynamic.annualCashTarget / 12) * withinYearRatio
+          + (month === 1 ? plannedLumpSumForYear(yearParams, year, withdrawalInflationFactor) : 0)
+        : targetMonthlyCashForMonth(yearParams, year, month, withdrawalInflationFactor);
       let desiredCash = params.cashMode === "monthlyTarget"
         ? targetMonthly
         : Math.max(0, interest) * ((Number(params.withdrawRate) || 0) / 100);
@@ -2013,8 +2576,44 @@ function calculateSwpPlan(params) {
       });
     }
 
+    // fin-8fb F2 — portfolio return for THIS year, fed into next year's
+    // guardrails inflation-hold decision (resolveDynamicSpending's
+    // priorYearReturn). Computed unconditionally (cheap); unused in fixed
+    // mode.
+    dynPriorYearReturn = opening > 0 ? annual.interest / opening : 0;
+
+    // fin-8fb F1 — §74 carry-forward true-up: applied ONCE per year, against
+    // the year's fully-aggregated streams (context.streams), never inside the
+    // monthly redemption loop (see applyYearEndCarryForward doc comment for
+    // why). Any prior-year carried loss reduces this year's tax; any
+    // unabsorbed loss this year rolls into the pool for future years.
+    const yearCarryForward = applyYearEndCarryForward(carryForwardPool, yearParams, context.streams, year);
+    if (yearCarryForward.taxBenefit > 0) {
+      annual.tax = Math.max(0, annual.tax - yearCarryForward.taxBenefit);
+      annual.taxableGain = Math.max(0, annual.taxableGain - yearCarryForward.taxableGainBenefit);
+      // Credit the tax saved back into the corpus (fewer units needed to have
+      // been sold to fund the lower, carry-forward-adjusted tax bill), split
+      // by this year's asset allocation like the annual contribution is.
+      const equityCreditShare = Number(yearParams.useAssetReturns) === 1 ? clamp((Number(yearParams.equityShare) || 0) / 100, 0, 1) : 0;
+      addContributionLot(buckets.equity, yearCarryForward.taxBenefit * equityCreditShare);
+      addContributionLot(buckets.debt, yearCarryForward.taxBenefit * (1 - equityCreditShare));
+      // Attribute the whole-year benefit to the last month's ledger row so
+      // INV-L06 (last monthly row's closing === annual closing) still holds;
+      // this is a documented simplification — see model-contract.md — the
+      // pool is a year-boundary concept, so intra-year monthly attribution is
+      // necessarily approximate.
+      const lastMonthRow = monthlyRows[monthlyRows.length - 1];
+      if (lastMonthRow) {
+        lastMonthRow.tax = Math.max(0, lastMonthRow.tax - yearCarryForward.taxBenefit);
+        lastMonthRow.netInterest += yearCarryForward.taxBenefit;
+        lastMonthRow.taxableGain = Math.max(0, lastMonthRow.taxableGain - yearCarryForward.taxableGainBenefit);
+        lastMonthRow.closing += yearCarryForward.taxBenefit;
+        lastMonthRow.realClosing = lastMonthRow.closing / cumulativeInflationFactor(params, year);
+      }
+    }
+
     const closing = bucketValue(buckets.equity) + bucketValue(buckets.debt);
-    const inflationFactor = Math.pow(1 + inflation, year);
+    const inflationFactor = cumulativeInflationFactor(params, year);
     cumWithdrawals += annual.withdrawal;
     cumInterest += annual.interest;
     cumTax += annual.tax;
@@ -2054,7 +2653,12 @@ function calculateSwpPlan(params) {
       withdrawalShortfall: annual.shortfall,
       cashCoverage: annual.targetCash ? annual.withdrawal / annual.targetCash : 0,
       targetCash: annual.targetCash,
-      lotCount: buckets.equity.lots.length + buckets.debt.lots.length
+      lotCount: buckets.equity.lots.length + buckets.debt.lots.length,
+      spendingMultiplier,
+      guardrailAction,
+      // fin-8fb F5 — additive; both 0 in default (tax-free) rebalance mode.
+      rebalanceGross: annual.rebalanceGross,
+      rebalanceTax: annual.rebalanceTax
     });
   }
   return finalizeModel(rows, params, effectiveYield(params), cumWithdrawals, cumTax, cumContributions, monthlyRows);
@@ -2064,7 +2668,6 @@ function calculateIdcwPlan(params) {
   const patched = { ...params, cashMode: params.cashMode || "monthlyTarget" };
   const years = Math.round(Number(patched.years) || 0);
   const effYield = effectiveYield(patched);
-  const inflation = (Number(patched.inflation) || 0) / 100;
   const idcwRate = (Number(patched.idcwYield) || 0) / 100;
   const rows = [];
   let closing = Number(patched.principal) || 0;
@@ -2072,16 +2675,51 @@ function calculateIdcwPlan(params) {
   let cumInterest = 0;
   let cumTax = 0;
   let cumContributions = 0;
-  rows.push({ year: 0, opening: closing, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0 });
+  // fin-8fb F2 — dynamic withdrawal rule state: local to this run, same
+  // discipline as SWP/Interest. See resolveDynamicSpending.
+  const dynamicRule = ["guardrails", "percentOfCorpus"].includes(patched.withdrawalRule) ? patched.withdrawalRule : "fixed";
+  let dynMultiplier = 1;
+  let dynHeldInflationFactor = 1;
+  let dynInitialRate = 0;
+  let dynPriorYearReturn = null;
+  rows.push({ year: 0, opening: closing, effYield, interest: 0, tax: 0, netInterest: 0, withdrawal: 0, reinvested: 0, contribution: 0, shock: 0, closing, realClosing: closing, realWithdrawal: 0, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: 0, taxableGain: 0, realizedGain: 0, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: 0, rebateUsed: 0, rebateLost: 0, section80TTBUsed: 0, section80TTBDisallowed: 0, grossRedemption: 0, cashCoverage: 0, targetCash: 0, spendingMultiplier: 1, guardrailAction: "none" });
   for (let year = 1; year <= years; year++) {
     const yearParams = paramsForProjectionYear(patched, year);
     const opening = closing;
     const interest = opening * effectiveYield(yearParams);
-    // δ=1: withdrawal inflation factor uses (1+g)^(year-1) so Year-1 = base (uninflated)
-    const withdrawalInflationFactor = Math.pow(1 + inflation, year - 1);
+    // δ=1: withdrawal inflation factor uses (1+g)^(year-1) so Year-1 = base
+    // (uninflated). fin-8fb F4: routes through cumulativeInflationFactor so a
+    // backtest cohort's sequenceInflationOverrides compounds year-by-year;
+    // degrades to the exact pre-F4 Math.pow expression otherwise.
+    const withdrawalInflationFactor = cumulativeInflationFactor(patched, year - 1);
     // real-corpus deflation factor stays (1+g)^year
-    const inflationFactor = Math.pow(1 + inflation, year);
-    const targetAnnual = targetAnnualCashForYear(yearParams, year, withdrawalInflationFactor);
+    const inflationFactor = cumulativeInflationFactor(patched, year);
+    let targetAnnual;
+    let spendingMultiplier = 1;
+    let guardrailAction = "none";
+    if (dynamicRule === "fixed") {
+      targetAnnual = targetAnnualCashForYear(yearParams, year, withdrawalInflationFactor);
+    } else {
+      const dyn = resolveDynamicSpending({
+        rule: dynamicRule,
+        year,
+        openingCorpus: opening,
+        baseAnnualCash: monthlyCashNeedForYear(yearParams, year) * 12,
+        inflationFactor: withdrawalInflationFactor,
+        heldInflationFactor: dynHeldInflationFactor,
+        initialRate: dynInitialRate,
+        multiplier: dynMultiplier,
+        priorYearReturn: dynPriorYearReturn,
+        params: yearParams
+      });
+      dynMultiplier = dyn.nextMultiplier;
+      dynHeldInflationFactor = dyn.nextInflationFactor;
+      if (year === 1) dynInitialRate = opening > 0 ? dyn.annualCashTarget / opening : 0;
+      spendingMultiplier = dyn.nextMultiplier;
+      guardrailAction = dyn.guardrailAction;
+      targetAnnual = dyn.annualCashTarget + plannedLumpSumForYear(yearParams, year, withdrawalInflationFactor);
+    }
+    dynPriorYearReturn = opening > 0 ? interest / opening : 0;
     const maxDistribution = Math.max(0, opening + interest) * idcwRate;
     let desiredGross = patched.cashMode === "monthlyTarget"
       ? maxDistribution
@@ -2107,7 +2745,7 @@ function calculateIdcwPlan(params) {
     cumInterest += interest;
     cumTax += tax;
     cumContributions += contribution;
-    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest: interest - tax, withdrawal, reinvested: Math.max(0, interest - desiredGross), contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: Math.max(0, desiredGross - interest), taxableGain: desiredGross, realizedGain: desiredGross, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: taxProfile.basicExemptionUsed, rebateUsed: taxProfile.rebateUsed, rebateLost: taxProfile.rebateLost, section80TTBUsed: taxProfile.section80TTBUsed || 0, section80TTBDisallowed: taxProfile.section80TTBDisallowed || 0, grossRedemption: desiredGross, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual });
+    rows.push({ year, opening, effYield: effectiveYield(yearParams), interest, tax, netInterest: interest - tax, withdrawal, reinvested: Math.max(0, interest - desiredGross), contribution, shock, closing, realClosing: closing / inflationFactor, realWithdrawal: withdrawal / inflationFactor, cumWithdrawals, cumInterest, cumTax, cumContributions, principalDrawdown: Math.max(0, desiredGross - interest), taxableGain: desiredGross, realizedGain: desiredGross, capitalRecovered: 0, ltcgExemptionUsed: 0, basicExemptionUsed: taxProfile.basicExemptionUsed, rebateUsed: taxProfile.rebateUsed, rebateLost: taxProfile.rebateLost, section80TTBUsed: taxProfile.section80TTBUsed || 0, section80TTBDisallowed: taxProfile.section80TTBDisallowed || 0, grossRedemption: desiredGross, cashCoverage: targetAnnual ? withdrawal / targetAnnual : 0, targetCash: targetAnnual, spendingMultiplier, guardrailAction });
   }
   return finalizeModel(rows, patched, effYield, cumWithdrawals, cumTax, cumContributions);
 }
@@ -2548,6 +3186,142 @@ function calculateMonteCarlo(params, simulations = undefined) {
   };
 }
 
+// fin-8fb F4 — Historical Backtest Lab. Builds one cohort's
+// sequenceReturnOverrides entry from an INDIA_ANNUAL_RETURNS-shaped row
+// ({ fy, equityNominalPct, debtNominalPct, inflationPct }), reusing the exact
+// override shape sampledReturnOverride produces for Monte Carlo — under
+// useAssetReturns the per-bucket equity/debt rates pass straight through
+// (paramsForProjectionYear + swpBucketGrowthRate/annualPortfolioRate apply
+// the engine's own, possibly glide-adjusted, equity/debt blend exactly as
+// they do for a live projection); otherwise the two historical rates are
+// pre-blended into a single annualRate override using the static equityShare
+// (glide paths do not apply to the single-blended-rate mode, matching
+// equityShareForYear's own short-circuit). The difference from
+// sampledReturnOverride is that the value comes from a fixed historical
+// year, not a random shock.
+function historicalReturnOverrideForYear(params, row) {
+  if (Number(params.useAssetReturns) === 1) {
+    return { equityReturn: row.equityNominalPct, debtReturn: row.debtNominalPct };
+  }
+  const equityShare = clamp((Number(params.equityShare) || 0) / 100, 0, 1);
+  return { annualRate: equityShare * row.equityNominalPct + (1 - equityShare) * row.debtNominalPct };
+}
+
+/**
+ * fin-8fb F4 — Historical Backtest Lab.
+ *
+ * Deterministic sequence-of-returns backtest: replays every historical
+ * cohort window of length `params.years` found in `dataset` (default
+ * INDIA_ANNUAL_RETURNS) through the same cash engine `calculate()` uses live,
+ * via the sequenceReturnOverrides plumbing (see historicalReturnOverrideForYear
+ * and paramsForProjectionYear). No RNG; a given (params, dataset) pair always
+ * produces byte-identical output.
+ *
+ * Cohorts: every start index i where i + horizon <= dataset.length (horizon
+ * = params.years). A dataset shorter than the requested horizon yields the
+ * documented zero-cohort shape rather than throwing.
+ *
+ * Historical inflation: when params.backtestUseHistoricalInflation === 1,
+ * each cohort's per-year inflationPct values replace the assumed
+ * params.inflation for that cohort's run via sequenceInflationOverrides,
+ * consumed by cumulativeInflationFactor with true year-by-year compounding
+ * (not a full-window average). Default 0 keeps the user's single assumed
+ * inflation rate for every cohort — a deliberate "historical returns, assumed
+ * inflation" planning-grade mixed mode.
+ *
+ * Success definition: mirrors calculateMonteCarlo's successProbability
+ * numerator exactly — a cohort counts as a success when its final closing
+ * corpus is >= targetCorpus, nothing more. `depleted`/`depletionYear` are
+ * reported separately per cohort (any row with closing <= 0) as richer
+ * diagnostics for the worst-cohort callout; they are not folded into the
+ * success/fail count so the definition stays a literal match to MC's.
+ *
+ * @param {object} params - normalized projection params (post
+ *   projectionParamsFromState); params.years is the cohort horizon.
+ * @param {Array<object>} [dataset=INDIA_ANNUAL_RETURNS] - array of
+ *   { fy, equityNominalPct, debtNominalPct, inflationPct } rows, ordered
+ *   chronologically with no gaps.
+ * @returns {object} { cohortCount, horizon, successRate, worst, best,
+ *   cohorts, percentileBands }
+ */
+function calculateHistoricalBacktest(params, dataset = INDIA_ANNUAL_RETURNS) {
+  const horizon = Math.round(Number(params.years) || 0);
+  const rows = Array.isArray(dataset) ? dataset : [];
+  const cohortCount = horizon > 0 ? Math.max(0, rows.length - horizon + 1) : 0;
+
+  if (cohortCount <= 0) {
+    return {
+      cohortCount: 0,
+      horizon,
+      successRate: 0,
+      worst: null,
+      best: null,
+      cohorts: [],
+      percentileBands: { p10: [], p50: [], p90: [] }
+    };
+  }
+
+  const useHistoricalInflation = Number(params.backtestUseHistoricalInflation) === 1;
+  const targetCorpus = Number(params.targetCorpus) || 0;
+  const yearlyClosings = Array.from({ length: horizon + 1 }, () => []);
+  const cohorts = [];
+  let successes = 0;
+
+  for (let start = 0; start <= rows.length - horizon; start++) {
+    const window = rows.slice(start, start + horizon);
+    const sequenceReturnOverrides = window.map((row) => historicalReturnOverrideForYear(params, row));
+    const cohortParams = { ...params, sequenceReturnOverrides };
+    if (useHistoricalInflation) {
+      cohortParams.sequenceInflationOverrides = window.map((row) => row.inflationPct);
+    }
+
+    const result = calculate(cohortParams);
+    const closing = result.final?.closing || 0;
+    const depletionRow = result.rows.find((row) => row.year > 0 && row.closing <= 0);
+    const depleted = Boolean(depletionRow);
+    if (closing >= targetCorpus) successes++;
+
+    for (let year = 0; year <= horizon; year++) {
+      yearlyClosings[year].push(result.rows[year]?.closing || 0);
+    }
+
+    cohorts.push({
+      startFy: window[0].fy,
+      endingCorpus: closing,
+      realEndingCorpus: result.final?.realClosing ?? closing,
+      depleted,
+      depletionYear: depleted ? depletionRow.year : null
+    });
+  }
+
+  const p10 = [];
+  const p50 = [];
+  const p90 = [];
+  for (let year = 0; year <= horizon; year++) {
+    const sorted = yearlyClosings[year].slice().sort((a, b) => a - b);
+    p10.push(quantile(sorted, 0.1));
+    p50.push(quantile(sorted, 0.5));
+    p90.push(quantile(sorted, 0.9));
+  }
+
+  const byClosing = cohorts.slice().sort((a, b) => a.endingCorpus - b.endingCorpus);
+  const worstCohort = byClosing[0];
+  const bestCohort = byClosing[byClosing.length - 1];
+  const pickSummary = (cohort) => (cohort
+    ? { startFy: cohort.startFy, endingCorpus: cohort.endingCorpus, depletionYear: cohort.depletionYear }
+    : null);
+
+  return {
+    cohortCount,
+    horizon,
+    successRate: successes / cohortCount,
+    worst: pickSummary(worstCohort),
+    best: pickSummary(bestCohort),
+    cohorts,
+    percentileBands: { p10, p50, p90 }
+  };
+}
+
 function solveTopup(params) {
   if (calculate(params).final.closing >= params.targetCorpus) return 0;
   let lo = 0;
@@ -2917,7 +3691,11 @@ function buildAllocationPlan(candidateState, model, profile, strategy = {}) {
   const defensiveValue = Math.max(0, principal - equityValue);
   const incomeFloor = Math.max(0, defensiveValue - cashBucket);
   const growthSleeve = equityValue;
-  const plannedGoal = profile.household?.plannedLumpSum || 0;
+  // fin-8fb F3: sum across every goal (not just the legacy single field) so
+  // the "Known goals" bucket reflects all planned lump sums; for
+  // legacy/single-goal states this equals profile.household.plannedLumpSum
+  // exactly, since plannedLumpSums then holds that one synthesized entry.
+  const plannedGoal = (profile.household?.plannedLumpSums || []).reduce((sum, goal) => sum + (Number(goal.amount) || 0), 0);
   const healthcareReserve = profile.household?.healthcareReserve || 0;
   const refillTrigger = monthlyCash * Math.max(6, Math.round(cashMonths * 0.5));
   const yearsCovered = monthlyCash > 0 ? Math.floor(defensiveValue / monthlyCash / 12) : 99;
@@ -3029,6 +3807,8 @@ export {
   clamp,
   normalizeFieldValue,
   normalizeState,
+  sanitizePlannedLumpSums,
+  resolvePlannedLumpSums,
   householdPlanProfile,
   projectionParamsFromState,
   roundToStep,
@@ -3057,6 +3837,8 @@ export {
   addTaxStreams,
   calculateTaxProfile,
   investmentTaxProfile,
+  assessmentYearForProjectionYear,
+  applyYearEndCarryForward,
   standardDeductionLimit,
   acquisitionYearForKind,
   productClassForInstrument,
@@ -3072,12 +3854,14 @@ export {
   monthlyRateFromAnnual,
   makeBucket,
   bucketValue,
+  rebalanceBucketsToShare,
   calculateSwpPlan,
   calculateIdcwPlan,
   monthlyCashNeedForYear,
   plannedLumpSumForYear,
   targetAnnualCashForYear,
   targetMonthlyCashForMonth,
+  resolveDynamicSpending,
   calculate,
   buildMonthlyLedger,
   calculateGuidancePlan,
@@ -3090,6 +3874,10 @@ export {
   sampledReturnParams,
   calculateSequencePath,
   calculateMonteCarlo,
+  cumulativeInflationFactor,
+  historicalInflationRateForYear,
+  historicalReturnOverrideForYear,
+  calculateHistoricalBacktest,
   solveTopup,
   solveReturn,
   planCoversMonthlyCash,

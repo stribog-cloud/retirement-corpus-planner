@@ -18,7 +18,7 @@
  *    d. Drawer remains scrollable (scrollHeight > clientHeight) OR within
  *       viewport bounds after topic expansion.
  *    e. axe-core finds zero serious/critical violations after expansion.
- * 5. Pass threshold: 69/69 topics verified. Reports topic key + assertion + axe
+ * 5. Pass threshold: 72/72 topics verified. Reports topic key + assertion + axe
  *    violation on any failure.
  *
  * Usage:
@@ -46,8 +46,10 @@ const MIME = {
   ".json": "application/json;charset=utf-8"
 };
 
-/** Total topic count expected per R4.9.5f manifest. */
-const EXPECTED_TOPIC_COUNT = 69;
+/** Total topic count expected per R4.9.5f manifest.
+ * fin-8fb.8: +2 for withdrawalRules and plannedGoals (F2/F3 help topics),
+ * +1 for historicalBacktest (F4 UI pass 2 help topic). */
+const EXPECTED_TOPIC_COUNT = 72;
 
 /** Eyewash markers — case-insensitive search. */
 const EYEWASH_PATTERNS = [

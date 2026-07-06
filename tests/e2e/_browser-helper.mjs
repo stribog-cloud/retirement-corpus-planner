@@ -126,6 +126,22 @@ export async function withBrowser(launchOpts, testFn) {
 
   try {
     const page = await browser.newPage();
+    // fin-8fb.14 (W-0002): app.html's bootstrap now respects prefers-color-
+    // scheme when no explicit theme is stored, but headless Chrome's own
+    // default preference is LIGHT. Every existing e2e/visual baseline was
+    // captured assuming the old hardcoded-dark default, so force the
+    // emulated system preference to dark here — this reproduces that old
+    // default exactly. An explicit stored/toggled theme still always wins
+    // (see resolveThemePreference in src/main.jsx), so tests that toggle
+    // themes explicitly are unaffected.
+    await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "dark" }]);
+    // NOTE: we deliberately do NOT pre-seed the theme localStorage key here.
+    // app.html's W-0002 bootstrap resolves the theme from prefers-color-scheme
+    // when nothing is stored, so the emulated dark preference above already
+    // reproduces the old hardcoded-dark default on the pre-consent screen —
+    // without writing any storage key. Seeding the key would violate
+    // dashboard-regression's pre-consent audit (the app must persist nothing
+    // before consent). An explicit stored/toggled theme still always wins.
     await testFn({ browser, page });
   } finally {
     try { await browser.close(); } catch {}
