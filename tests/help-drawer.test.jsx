@@ -5,12 +5,13 @@
  *
  * Verifies the shape, count, category assignments, and cross-link integrity of
  * the HelpDrawer.topics object after the R4.9.5f expansion (22 existing + 47
- * new = 69 total). The topics object is factored into a module-level
+ * new = 69) plus the fin-8fb F2/F3 pass (+2: withdrawalRules, plannedGoals =
+ * 71 total). The topics object is factored into a module-level
  * `buildHelpTopics(activeTaxLaw)` factory so the suite can verify it without
  * mounting React.
  *
  * Assertions:
- *   1. Total topic count is 69 (22 existing + 47 new).
+ *   1. Total topic count is 71 (22 existing + 47 R4.9.5f + 2 fin-8fb).
  *   2. Every expected key from the R4.9.5f manifest is present; no extras.
  *   3. Every topic has a non-empty title and summary.
  *   4. Every topic has a category in the canonical 5-category set.
@@ -107,12 +108,20 @@ const TIER_3_KEYS = [
 
 const MOBILE_GUIDE_KEY = "mobileGuide";
 
+// fin-8fb F2/F3 UI pass (2026-07): withdrawal-rule and planned-goals help
+// topics, added after the R4.9.5f manifest was frozen.
+const FIN_8FB_KEYS = [
+  "withdrawalRules",
+  "plannedGoals"
+];
+
 const ALL_EXPECTED_KEYS = [
   ...EXISTING_KEYS,
   ...TIER_1_KEYS,
   ...TIER_2_KEYS,
   ...TIER_3_KEYS,
-  MOBILE_GUIDE_KEY
+  MOBILE_GUIDE_KEY,
+  ...FIN_8FB_KEYS
 ];
 
 const CANONICAL_CATEGORIES = new Set([
@@ -129,15 +138,16 @@ describe("HelpDrawer topics — R4.9.5f shape and category invariants", () => {
   const topics = buildHelpTopics(DEFAULT_TAX_LAW);
   const topicKeys = Object.keys(topics);
 
-  it("contains exactly 69 topics (22 existing + 47 new)", () => {
-    expect(topicKeys.length).toBe(69);
+  it("contains exactly 71 topics (22 existing + 47 R4.9.5f + 2 fin-8fb)", () => {
+    expect(topicKeys.length).toBe(71);
     expect(EXISTING_KEYS.length).toBe(22);
     expect(TIER_1_KEYS.length).toBe(7);
     expect(TIER_2_KEYS.length).toBe(22);
     expect(TIER_3_KEYS.length).toBe(17);
-    // 7 + 22 + 17 + 1 (mobileGuide) = 47 new topics
+    expect(FIN_8FB_KEYS.length).toBe(2);
+    // 7 + 22 + 17 + 1 (mobileGuide) = 47 R4.9.5f topics
     expect(TIER_1_KEYS.length + TIER_2_KEYS.length + TIER_3_KEYS.length + 1).toBe(47);
-    expect(ALL_EXPECTED_KEYS.length).toBe(69);
+    expect(ALL_EXPECTED_KEYS.length).toBe(71);
   });
 
   it("contains every expected key and no extras", () => {
@@ -248,8 +258,8 @@ describe("HelpDrawer topics — category distribution (sanity)", () => {
     }
   });
 
-  it("category counts sum to 69 (no topic loses or doubles its category)", () => {
+  it("category counts sum to 71 (no topic loses or doubles its category)", () => {
     const total = Object.values(byCategory).reduce((acc, n) => acc + n, 0);
-    expect(total).toBe(69);
+    expect(total).toBe(71);
   });
 });

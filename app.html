@@ -26,9 +26,19 @@
         } catch (parseError) {
           savedTheme = rawTheme;
         }
-        document.documentElement.dataset.theme = savedTheme === "light" || savedTheme === "dark" ? savedTheme : "dark";
+        // W-0002: an explicit stored choice always wins; a missing key, an
+        // invalid value, or a JSON parse error all fall through to the
+        // OS/browser prefers-color-scheme instead of hardcoding dark.
+        const systemTheme = (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+        document.documentElement.dataset.theme = savedTheme === "light" || savedTheme === "dark" ? savedTheme : systemTheme;
       } catch (error) {
-        document.documentElement.dataset.theme = "dark";
+        let systemTheme = "dark";
+        try {
+          systemTheme = (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+        } catch (mediaQueryError) {
+          systemTheme = "dark";
+        }
+        document.documentElement.dataset.theme = systemTheme;
       }
     </script>
   </head>

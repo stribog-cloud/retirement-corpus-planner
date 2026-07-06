@@ -146,7 +146,10 @@ import {
   ageBandLabel,
   taxProfileLabel,
   instrumentLabel,
-  taxRuleLabel
+  taxRuleLabel,
+  resolveDynamicSpending,
+  sanitizePlannedLumpSums,
+  resolvePlannedLumpSums
 } from "./model.js";
 import {
   PLANNING_VERSION,
@@ -301,9 +304,40 @@ function loadECharts() {
 }
 /* v8 ignore stop */
 
+// fin-8fb.14 (W-0002): when no explicit theme choice has ever been stored,
+// respect the OS/browser prefers-color-scheme instead of hardcoding dark.
+// Mirrors app.html's inline bootstrap script exactly (parse-then-fallback
+// shape) so React's initial theme state agrees with what the bootstrap
+// script already painted onto <html data-theme> before React mounted.
+// Exported and unit-tested directly (tests/theme-preference.test.jsx) with
+// a mocked window.matchMedia — no DOM mount required.
+function systemPrefersLightTheme() {
+  try {
+    return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+function resolveThemePreference(rawStoredValue) {
+  let stored = "";
+  try {
+    stored = JSON.parse(rawStoredValue || "\"\"");
+  } catch (_) {
+    stored = rawStoredValue;
+  }
+  if (stored === "light" || stored === "dark") return stored;
+  return systemPrefersLightTheme() ? "light" : "dark";
+}
+
 /* v8 ignore start -- UI behavior is covered by Puppeteer smoke/e2e tests. */
 function useTheme() {
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "dark");
+  const [theme, setTheme] = useState(() => {
+    const bootstrapped = document.documentElement.dataset.theme;
+    if (bootstrapped === "light" || bootstrapped === "dark") return bootstrapped;
+    const hasConsent = loadDisclaimerAcknowledged();
+    return resolveThemePreference(hasConsent ? localStorage.getItem(THEME_KEY) : "");
+  });
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -420,7 +454,16 @@ function useModalFocus(open, containerRef, { initialFocusRef, returnFocus = true
         return;
       }
       if (event.key !== "Tab") return;
-      const focusable = Array.from(container.querySelectorAll(MODAL_FOCUSABLE_SELECTOR));
+      const allFocusable = Array.from(container.querySelectorAll(MODAL_FOCUSABLE_SELECTOR));
+      // Hidden inactive tab panels (e.g. AssumptionDrawer's non-active studio
+      // sections, which stay in the DOM at display:none) still match
+      // MODAL_FOCUSABLE_SELECTOR even though they are not reachable. Filter
+      // to visible elements so Tab-wrap only cycles through what the user
+      // can actually see. jsdom never computes layout (offsetParent is
+      // always null there), so a filtered result of zero elements falls
+      // back to the unfiltered list rather than trapping focus nowhere.
+      const visibleFocusable = allFocusable.filter((el) => el.offsetParent !== null);
+      const focusable = visibleFocusable.length ? visibleFocusable : allFocusable;
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -1716,7 +1759,7 @@ function TrustCenterPanel({ state, effectiveYears, activeTaxLaw, taxLawStatus, m
   );
 }
 
-function ScenarioTimeline({ history, deltas, onSave, onRestore, onDelete, onExport, onImport, onAnnotate, disabled = false }) {
+function ScenarioTimeline({ history, deltas, onSave, onRestore, onDelete, onExport, onImport, onAnnotate, disabled = false, goals = [] }) {
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const importInputRef = useRef(null);
@@ -1733,6 +1776,21 @@ function ScenarioTimeline({ history, deltas, onSave, onRestore, onDelete, onExpo
   return (
     <article className="panel scenario-timeline-panel" aria-label="Saved scenario timeline">
       <PanelHead eyebrow="Plan History" title="Saved Scenario Timeline" note="Name important versions before changing assumptions. Each snapshot stores assumptions, tax-law version, live outputs, and a fingerprint for adviser review." help={null} />
+      {goals.length ? (
+        <div className="goal-marker-strip" aria-label="Planned lump-sum goal markers">
+          {goals.map((goal, index) => (
+            <span
+              key={goal.id ?? `${goal.name || "goal"}-${goal.year}-${index}`}
+              className="goal-marker"
+              title={`${goal.name || "Planned goal"} in year ${goal.year}`}
+              aria-label={`${goal.name || "Planned goal"} in year ${goal.year}`}
+            >
+              <b>{`Y${goal.year}`}</b>
+              <em>{goal.name || "Planned goal"}</em>
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="scenario-save-grid">
         <label>
           <span>Snapshot name</span>
@@ -2216,7 +2274,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
         }
       ],
       category: "metrics",
-      related: ["goals", "monthlyCashSolver", "policy", "corpusFloor", "defensiveCover"]
+      related: ["goals", "plannedGoals", "monthlyCashSolver", "policy", "corpusFloor", "defensiveCover"]
     },
     scenarioLibrary: {
       title: "Scenario Library",
@@ -2393,7 +2451,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
       summary: "Monte Carlo paths now generate year-by-year sequence-of-returns paths and rerun the active cash engine, so bad early returns can change depletion, P10/P50/P90, and end-target chance.",
       steps: ["End Target Chance is the share of sampled paths whose final nominal corpus clears the inflated corpus target.", "Set sample size and seed when you want repeatable risk runs; higher sample sizes are slower but smoother.", "Use equity/debt volatility and correlation when asset-blend mode is active; manual-return mode uses the single annual volatility field.", "SWP, IDCW, and interest modes keep their active cash semantics inside the risk surface.", "Read P10 as the downside case and P50 as the median path, not as guarantees."],
       category: "metrics",
-      related: ["understandingMC", "planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "riskGuardrail", "displayRule"]
+      related: ["understandingMC", "planEndurance", "targetConfidence", "monteCarloUncertainty", "sequenceOfReturns", "riskGuardrail", "displayRule", "withdrawalRules"]
     },
     sensitivity: {
       title: "Sensitivity Heatmap",
@@ -2475,7 +2533,7 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
       summary: "The dashboard treats target corpus as today's rupees, inflates it internally to the final year, and then estimates required annual top-up or required return if the plan is short.",
       steps: ["Set target corpus in today's rupees.", "Set monthly cash target.", "Read Corpus Goal and Cash Goal separately.", "Use Gap Solver for top-up or return requirement."],
       category: "metrics",
-      related: ["incomeCover", "closingTheGap", "gapSolver", "gapFramings", "monthlyCashSolver"]
+      related: ["incomeCover", "closingTheGap", "gapSolver", "gapFramings", "monthlyCashSolver", "plannedGoals"]
     },
     optimizer: {
       title: "Recommended Strategy Shortlist",
@@ -3245,6 +3303,62 @@ function buildHelpTopics(activeTaxLaw = DEFAULT_TAX_LAW) {
       ],
       category: "concepts",
       related: ["pdfExport", "fifo", "reviewPack", "trustCenter"]
+    },
+    withdrawalRules: {
+      title: "Dynamic Withdrawal Rules",
+      summary: "Withdrawal rule chooses how the recurring cash need is resolved each year: Fixed keeps today's inflation-indexed target unchanged, Guardrails cuts, raises, or briefly holds spending near the year-one withdrawal rate, and % of corpus recomputes the target from opening corpus every year.",
+      steps: [
+        "Open Model, then Risk & Goals, and choose a withdrawal rule.",
+        "Fixed is the default and is byte-identical to the pre-F2 behaviour: no cuts, raises, or corpus-linked recompute.",
+        "Guardrails cuts spending when the withdrawal rate drifts too far above the year-one rate, raises it when the rate drifts too far below, and otherwise holds last year's inflation escalation flat in a year that follows a market loss.",
+        "% of corpus ignores inflation escalation and instead targets a fixed percentage of opening corpus every year — simpler, but the cash target can swing with the market.",
+        "A spending floor (today's rupees) applies to both dynamic rules so the resolved target never falls below a minimum monthly cash level, even after a cut.",
+        "Planned lump-sum goals are never scaled by a guardrail cut/raise or by % of corpus — they are added on top of the resolved recurring target in their own year, at their own inflation setting."
+      ],
+      sections: [
+        {
+          title: "What Each Rule Does",
+          items: [
+            "Fixed: today's inflation-indexed cash target, unchanged from the pre-F2 model.",
+            "Guardrails: a simplified Guyton-Klinger rule — cut, raise, or hold, bounded to a 0.5x-2x spending multiplier.",
+            "% of corpus: recomputed every year as a chosen percentage of that year's opening corpus; no smoothing, no band, no hold state.",
+            "Spending floor: a today's-rupees minimum monthly cash that both dynamic rules respect, always escalated by true inflation regardless of any cut or hold."
+          ]
+        },
+        {
+          title: "Read This Honestly",
+          items: [
+            "This is a planning-grade simulation of a spending rule, not a guarantee that a retiree will actually follow it in a real bad market.",
+            "Guardrails and % of corpus change how much cash the plan aims for; they do not change tax treatment, product classification, or sequence-of-returns risk elsewhere in the model.",
+            "The Withdrawal Rule line in the insights rail only appears once a dynamic rule is active, and shows the latest cut/raise/hold state and spending multiplier — read it alongside End Target Chance, not instead of it."
+          ]
+        }
+      ],
+      category: "metrics",
+      related: ["risk", "goals", "retirement", "plannedGoals"]
+    },
+    plannedGoals: {
+      title: "Planned Lump-Sum Goals",
+      summary: "Planned lump-sum goals let a household plan up to 10 one-time cash needs — a car, wedding, renovation, or similar — each with its own name, amount, year, and optional inflation indexing.",
+      steps: [
+        "Switch on Use household plan, then open the household tab's Planned lump-sum goals editor.",
+        "Add a goal: name it, set the amount in today's rupees, choose the projection year it lands in, and choose whether it should inflate.",
+        "Remove a goal with its trash-can button, or add more goals up to the cap of 10.",
+        "Each goal is injected into the target cash only in its own selected year, on top of the recurring cash need — goals are never scaled together or by a guardrail cut/raise."
+      ],
+      sections: [
+        {
+          title: "How Goals Resolve",
+          items: [
+            "Goals only fire while Use household plan is on; the editor and its goals are inert in single-target mode.",
+            "An inflate-enabled goal escalates by the same inflation factor as the recurring cash need; a fixed goal keeps its entered amount at face value in its landing year.",
+            "Invalid entries are cleaned up automatically: names are capped at 40 characters, a negative or non-numeric amount is dropped, and an out-of-range year is pulled back into the supported 1-80 year horizon rather than silently ignored.",
+            "Saved scenario snapshots, CSV/PDF exports, and the review pack all read from the same resolved goals array, so a goal added here appears consistently everywhere."
+          ]
+        }
+      ],
+      category: "metrics",
+      related: ["household", "goals", "withdrawalRules"]
     }
   };
 }
@@ -3470,6 +3584,62 @@ function DisclaimerNotice({ open, onAccept, onClear, onHelp }) {
   );
 }
 
+// fin-8fb F3 — multi-goal planned lump sums editor. Reads/writes the whole
+// `plannedLumpSums` array through a single setField("plannedLumpSums", next)
+// call; model.js's normalizeState/sanitizePlannedLumpSums is the source of
+// truth for clamping, so this component displays whatever comes back rather
+// than re-validating locally.
+function PlannedGoalsEditor({ goals, onChange }) {
+  const rows = Array.isArray(goals) ? goals : [];
+  const atCap = rows.length >= 10;
+  const updateRow = (index, patch) => {
+    onChange(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+  };
+  const removeRow = (index) => {
+    onChange(rows.filter((_, rowIndex) => rowIndex !== index));
+  };
+  const addRow = () => {
+    if (atCap) return;
+    onChange([...rows, { name: "", amount: 0, year: 1, inflate: 1 }]);
+  };
+  return (
+    <div className="goal-editor">
+      {rows.length ? (
+        <div className="goal-editor-list">
+          {rows.map((goal, index) => (
+            <div className="goal-row" key={goal.id ?? `goal-${index}`}>
+              <label className="goal-row-field goal-row-name">
+                <span>Goal name</span>
+                <input type="text" value={goal.name || ""} maxLength="40" placeholder={`Goal ${index + 1}`} onChange={(event) => updateRow(index, { name: event.target.value })} aria-label={`Goal ${index + 1} name`} />
+              </label>
+              <label className="goal-row-field goal-row-amount">
+                <span>Amount</span>
+                <NumberEntry value={goal.amount} min={0} max={100000000} step={10000} onCommit={(value) => updateRow(index, { amount: value })} ariaLabel={`Goal ${index + 1} amount`} />
+              </label>
+              <label className="goal-row-field goal-row-year">
+                <span>Year</span>
+                <NumberEntry value={goal.year} min={1} max={80} step={1} onCommit={(value) => updateRow(index, { year: value })} ariaLabel={`Goal ${index + 1} year`} />
+              </label>
+              <label className="goal-row-field goal-row-inflate">
+                <span>Inflate</span>
+                <select value={Number(goal.inflate) === 1 ? 1 : 0} onChange={(event) => updateRow(index, { inflate: Number(event.target.value) })} aria-label={`Inflate goal ${index + 1}`}>
+                  <option value={1}>Yes, inflate goal</option>
+                  <option value={0}>No, fixed amount</option>
+                </select>
+              </label>
+              <button type="button" className="goal-row-remove" onClick={() => removeRow(index)} aria-label={`Remove goal ${index + 1}${goal.name ? `: ${goal.name}` : ""}`}><Trash2 /></button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="goal-editor-empty">No planned lump-sum goals yet. Add a car, wedding, renovation, or other one-time goal below.</p>
+      )}
+      <button type="button" className="goal-add-button" onClick={addRow} disabled={atCap} aria-disabled={atCap}>Add goal</button>
+      {atCap ? <small className="goal-editor-cap-hint">Up to 10 planned goals; remove one to add another.</small> : null}
+    </div>
+  );
+}
+
 function AssumptionDrawer({ open, state, outputState = state, setField, onClose, openHelp, onClearSavedData }) {
   const [activeSection, setActiveSection] = useState("household");
   const [studioQuery, setStudioQuery] = useState("");
@@ -3525,11 +3695,11 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
   ];
   const panelClass = (id) => `studio-panel ${activeSection === id ? "active" : ""}`;
   const studioResetFields = {
-    household: ["useHouseholdPlan", "retireeAge", "spouseAge", "dependantCount", "essentialMonthlyExpense", "discretionaryMonthlyExpense", "spouseMonthlyNeed", "dependantMonthlySupport", "dependantSupportYears", "pensionMonthlyIncome", "rentMonthlyIncome", "annuityMonthlyIncome", "pmvvyMonthlyIncome", "otherMonthlyIncome", "healthcareReserve", "emergencyMonths", "plannedLumpSumAmount", "plannedLumpSumYear", "plannedLumpSumInflate", "longevityYears", "contingencyYears", "legacyCorpusGoal"],
+    household: ["useHouseholdPlan", "retireeAge", "spouseAge", "dependantCount", "essentialMonthlyExpense", "discretionaryMonthlyExpense", "spouseMonthlyNeed", "dependantMonthlySupport", "dependantSupportYears", "pensionMonthlyIncome", "rentMonthlyIncome", "annuityMonthlyIncome", "pmvvyMonthlyIncome", "otherMonthlyIncome", "healthcareReserve", "emergencyMonths", "plannedLumpSums", "plannedLumpSumAmount", "plannedLumpSumYear", "plannedLumpSumInflate", "longevityYears", "contingencyYears", "legacyCorpusGoal"],
     core: ["principal", "incomeMode", "cashMode", "annualRate", "portfolioIncomeYield", "withdrawRate", "compounding", "years"],
     assets: ["useAssetReturns", "equityShare", "equityReturn", "debtReturn", "equityIncomeYield", "equityIncomePolicy", "debtIncomeYield", "debtIncomePolicy", "expenseRatio", "equityInstrument", "equityProductClass", "equityAcquisitionYear", "equitySttPaid", "debtInstrument", "debtProductClass", "debtAcquisitionYear"],
     tax: ["taxProfileMode", "taxRegime", "ageBand", "residentStatus", "pensionIncome", "otherIncome", "standardDeductionMode", "standardDeduction", "section87A", "section87AInterpretation", "tdsEnabled", "interestTdsRate", "nriWithholdingRate", "form15Declaration", "taxSlab", "costBasisPct", "equityFmv2018Pct", "useFmvGrandfathering", "legacyHoldingYears", "withdrawalPriority"],
-    risk: ["inflation", "taxRate", "harvestLtcg", "inflateWithdrawals", "allowPrincipalDrawdown", "idcwYield", "annualContribution", "contributionStepUp", "volatility", "equityVolatility", "debtVolatility", "equityDebtCorrelation", "shockModel", "monteCarloSamples", "monteCarloSeed", "glidePathEnabled", "glidePathEndEquity", "glidePathYears", "shockYear", "shockDrop", "monthlyTarget", "targetCorpus", "lockCashBucket", "cashBucketMonthsOverride", "lockEquityShare", "equityShareOverride", "preferSimpleProducts", "avoidCreditRisk", "allowAnnuity"],
+    risk: ["inflation", "taxRate", "harvestLtcg", "inflateWithdrawals", "allowPrincipalDrawdown", "withdrawalRule", "guardrailBandPct", "guardrailAdjustPct", "percentOfCorpusRate", "spendingFloorMonthly", "idcwYield", "annualContribution", "contributionStepUp", "volatility", "equityVolatility", "debtVolatility", "equityDebtCorrelation", "shockModel", "monteCarloSamples", "monteCarloSeed", "glidePathEnabled", "glidePathEndEquity", "glidePathYears", "shockYear", "shockDrop", "monthlyTarget", "targetCorpus", "lockCashBucket", "cashBucketMonthsOverride", "lockEquityShare", "equityShareOverride", "preferSimpleProducts", "avoidCreditRisk", "allowAnnuity"],
     law: ["taxLawJson"],
     privacy: []
   };
@@ -3630,9 +3800,13 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
             <Control label="Other monthly income" value={state.otherMonthlyIncome} onChange={(value) => setField("otherMonthlyIncome", value)} min={0} max={2000000} step={10000} />
             <Control label="Healthcare reserve" help={() => openHelp("household")} value={state.healthcareReserve} onChange={(value) => setField("healthcareReserve", value)} min={0} max={50000000} step={100000} />
             <Control label="Emergency reserve months" value={state.emergencyMonths} onChange={(value) => setField("emergencyMonths", value)} min={0} max={60} step={1} />
-            <Control label="Known lump-sum goal" value={state.plannedLumpSumAmount} onChange={(value) => setField("plannedLumpSumAmount", value)} min={0} max={100000000} step={100000} />
-            <Control label="Lump-sum year" value={state.plannedLumpSumYear} onChange={(value) => setField("plannedLumpSumYear", value)} min={0} max={60} step={1} />
-            <Control label="Inflate lump-sum" value={state.plannedLumpSumInflate} onChange={(value) => setField("plannedLumpSumInflate", Number(value))} options={[{ value: 1, label: "Yes, inflate goal" }, { value: 0, label: "No, fixed amount" }]} />
+            <div className="goal-editor-field" role="group" aria-label="Planned lump-sum goals" data-label="Planned lump-sum goals">
+              <span>
+                Planned lump-sum goals
+                <button type="button" className="help-chip" onClick={() => openHelp("plannedGoals")} aria-label="Help for Planned lump-sum goals">?</button>
+              </span>
+              <PlannedGoalsEditor goals={state.plannedLumpSums} onChange={(nextGoals) => setField("plannedLumpSums", nextGoals)} />
+            </div>
             <Control label="Longevity horizon" help={() => openHelp("household")} value={state.longevityYears} onChange={(value) => setField("longevityYears", value)} min={1} max={60} step={1} suffix="yrs" />
             <Control label="Contingency horizon" value={state.contingencyYears} onChange={(value) => setField("contingencyYears", value)} min={0} max={20} step={1} suffix="yrs" />
             <Control label="Legacy corpus goal" value={state.legacyCorpusGoal} onChange={(value) => setField("legacyCorpusGoal", value)} min={0} max={500000000} step={1000000} />
@@ -3700,6 +3874,18 @@ function AssumptionDrawer({ open, state, outputState = state, setField, onClose,
             <Control label="LTCG harvesting" help={() => openHelp("taxScenarios")} value={state.harvestLtcg} onChange={(value) => setField("harvestLtcg", Number(value))} options={[{ value: 1, label: "Use annual exemption" }, { value: 0, label: "Ignore exemption" }]} />
             <Control label="Inflate cash target" value={state.inflateWithdrawals} onChange={(value) => setField("inflateWithdrawals", Number(value))} options={[{ value: 1, label: "Yes, inflation-linked" }, { value: 0, label: "No, flat nominal cash" }]} />
             <Control label="Allow corpus drawdown" value={state.allowPrincipalDrawdown} onChange={(value) => setField("allowPrincipalDrawdown", Number(value))} options={[{ value: 1, label: "Yes" }, { value: 0, label: "No" }]} />
+            <ChoiceGroup label="Withdrawal rule" value={state.withdrawalRule} onChange={(value) => setField("withdrawalRule", value)} options={[
+              { value: "fixed", label: "Fixed", note: "Inflation-indexed, unchanged" },
+              { value: "guardrails", label: "Guardrails", note: "Cuts, raises, or holds spending" },
+              { value: "percentOfCorpus", label: "% of corpus", note: "Recomputed every year" }
+            ]} />
+            <Control label="Guardrail band" value={state.guardrailBandPct} onChange={(value) => setField("guardrailBandPct", value)} min={0} max={50} step={1} suffix="%" disabled={state.withdrawalRule !== "guardrails"} note={state.withdrawalRule !== "guardrails" ? "Only used by the Guardrails withdrawal rule." : "Spending is cut or raised once the withdrawal rate drifts this far from the year-one rate."} />
+            <Control label="Guardrail adjustment" value={state.guardrailAdjustPct} onChange={(value) => setField("guardrailAdjustPct", value)} min={0} max={100} step={1} suffix="%" disabled={state.withdrawalRule !== "guardrails"} note={state.withdrawalRule !== "guardrails" ? "Only used by the Guardrails withdrawal rule." : "Size of each cut or raise when a guardrail band is breached."} />
+            <Control label="Percent of corpus rate" value={state.percentOfCorpusRate} onChange={(value) => setField("percentOfCorpusRate", value)} min={0} max={15} step={0.25} suffix="%" disabled={state.withdrawalRule !== "percentOfCorpus"} note={state.withdrawalRule !== "percentOfCorpus" ? "Only used by the % of corpus withdrawal rule." : "Cash target is recomputed as this share of opening corpus every year."} />
+            <Control label="Spending floor" value={state.spendingFloorMonthly} onChange={(value) => setField("spendingFloorMonthly", value)} min={0} max={2000000} step={5000} disabled={state.withdrawalRule === "fixed"} note={state.withdrawalRule === "fixed" ? "Only used by Guardrails and % of corpus." : "Minimum monthly cash in today's rupees; the resolved target never falls below this."} />
+            <button className="drawer-note" type="button" onClick={() => openHelp("withdrawalRules")}>
+              Guardrails cut, raise, or briefly hold spending near the year-one withdrawal rate; % of corpus recomputes the cash target from opening corpus every year. Tap for the full withdrawal-rule guide.
+            </button>
             <Control label="IDCW payout yield" help={() => openHelp("retirement")} value={state.idcwYield} onChange={(value) => setField("idcwYield", value)} min={0} max={18} step={0.25} suffix="%" />
             <Control label="Annual top-up" value={state.annualContribution} onChange={(value) => setField("annualContribution", value)} min={0} max={10000000} step={50000} />
             <Control label="Top-up step-up" value={state.contributionStepUp} onChange={(value) => setField("contributionStepUp", value)} min={0} max={25} step={0.5} suffix="%" />
@@ -5859,6 +6045,11 @@ function DashboardPages() {
     appShellStyle
   } = dashboard;
   const mobileNextAction = overviewActions[0] || { label: "Review plan", onClick: () => switchView("overview") };
+  // fin-8fb.8 follow-up (W0-B note): mobile-insights-sheet is a real
+  // aria-modal surface (see its role="dialog" below) but previously had no
+  // focus management, unlike GuidedTour/HelpDrawer/AssumptionDrawer.
+  const mobileInsightsRef = useRef(null);
+  useModalFocus(mobileInsightsOpen, mobileInsightsRef, { onClose: () => setMobileInsightsOpen(false) });
   return (
     <>
               <PageNarrative narrative={activeNarrative} />
@@ -6020,6 +6211,7 @@ function DashboardPages() {
                 onExport={exportScenarioSnapshot}
                 onImport={importScenarioSnapshot}
                 disabled={analyticsPending}
+                goals={modelHousehold.plannedLumpSums}
               />
 
               <div className="kpi-strip">
@@ -7097,6 +7289,14 @@ function DashboardShell() {
                   <StatementRow label="Cash Goal" value={`${Math.round(clamp(cashRatio, 0, 9.99) * 100)}%`} ratio={cashRatio} accent="coral" />
                   <StatementRow label="End Chance" value={successDisplay.primary} ratio={mc.successProbability} />
                   <StatementRow label="Tax Drag" value={formatInr(final.cumTax)} ratio={taxBurden} accent="coral" />
+                  {modelState.withdrawalRule !== "fixed" ? (
+                    <StatementRow
+                      label="Withdrawal Rule"
+                      value={`${final.guardrailAction === "cut" ? "Cut" : final.guardrailAction === "raise" ? "Raised" : final.guardrailAction === "inflation-hold" ? "Held" : "On track"} · ${Math.round(clamp(final.spendingMultiplier, 0.5, 2) * 100)}%`}
+                      ratio={clamp((final.spendingMultiplier - 0.5) / 1.5, 0, 1)}
+                      accent={final.guardrailAction === "cut" ? "coral" : undefined}
+                    />
+                  ) : null}
                 </section>
                 <section className="panel smart-card">
                   <div className="smart-head"><div><span>Smart Insights</span><h2>What Changed</h2></div><Sparkles /></div>
@@ -7138,7 +7338,7 @@ function DashboardShell() {
         <button type="button" onClick={() => setMobileInsightsOpen(true)}><Sparkles /> Insights</button>
         <button type="button" onClick={startTour}><CircleHelp /> Tour</button>
       </div>
-      <div className={`mobile-insights-sheet ${mobileInsightsOpen ? "open" : ""}`} role="dialog" aria-modal="true" aria-label="Mobile insights">
+      <div ref={mobileInsightsRef} className={`mobile-insights-sheet ${mobileInsightsOpen ? "open" : ""}`} role="dialog" aria-modal="true" aria-label="Mobile insights">
         <button type="button" className="mobile-sheet-backdrop" onClick={() => setMobileInsightsOpen(false)} aria-label="Close mobile insights" />
         <section className="mobile-sheet-panel">
           <div className="mobile-sheet-head">
@@ -7151,6 +7351,14 @@ function DashboardShell() {
             <StatementRow label="Corpus Goal" value={`${Math.round(clamp(corpusRatio, 0, 9.99) * 100)}%`} ratio={corpusRatio} />
             <StatementRow label="Cash Goal" value={`${Math.round(clamp(cashRatio, 0, 9.99) * 100)}%`} ratio={cashRatio} accent="coral" />
             <StatementRow label="End Chance" value={successDisplay.primary} ratio={mc.successProbability} />
+            {modelState.withdrawalRule !== "fixed" ? (
+              <StatementRow
+                label="Withdrawal Rule"
+                value={`${final.guardrailAction === "cut" ? "Cut" : final.guardrailAction === "raise" ? "Raised" : final.guardrailAction === "inflation-hold" ? "Held" : "On track"} · ${Math.round(clamp(final.spendingMultiplier, 0.5, 2) * 100)}%`}
+                ratio={clamp((final.spendingMultiplier - 0.5) / 1.5, 0, 1)}
+                accent={final.guardrailAction === "cut" ? "coral" : undefined}
+              />
+            ) : null}
           </div>
           <div className="mobile-smart-list">
             {smartInsights.slice(0, 4).map((line) => <p key={line}>{line}</p>)}
@@ -7270,6 +7478,9 @@ const MODEL_DEBUG_API = {
   formatFullInr,
   formatPct,
   targetAnnualCashForYear,
+  resolveDynamicSpending,
+  sanitizePlannedLumpSums,
+  resolvePlannedLumpSums,
   DEFAULT_TAX_LAW,
   formatTaxLawJson,
   sanitizeTaxLaw,
@@ -7431,5 +7642,7 @@ export {
   calcSparklineTicks,
   useModalFocus,
   MODAL_FOCUSABLE_SELECTOR,
-  useDebouncedPersist
+  useDebouncedPersist,
+  systemPrefersLightTheme,
+  resolveThemePreference
 };

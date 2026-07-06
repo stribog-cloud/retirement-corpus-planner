@@ -1401,6 +1401,35 @@ p {
   height: 15px;
 }
 
+.goal-marker-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.goal-marker {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 82%, transparent);
+  font-size: 0.6rem;
+}
+
+.goal-marker b {
+  color: var(--teal);
+  font-weight: 900;
+}
+
+.goal-marker em {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 800;
+}
+
 .trust-center-panel,
 .retiree-guided-mode,
 .scenario-library-panel,
@@ -4501,6 +4530,103 @@ td {
   font-weight: 850;
 }
 
+.goal-editor-field {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+}
+
+.goal-editor-field > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.66rem;
+  font-weight: 900;
+}
+
+.goal-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.goal-editor-list {
+  display: grid;
+  gap: 8px;
+}
+
+.goal-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 0.8fr 1.1fr auto;
+  gap: 8px;
+  align-items: end;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+}
+
+.goal-row-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.6rem;
+}
+
+.goal-row-field > span {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.goal-row-field input[type="text"],
+.goal-row-field select {
+  min-height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 0 8px;
+  font-weight: 800;
+}
+
+.goal-row-remove {
+  min-height: 32px;
+  min-width: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--coral) 42%, var(--line));
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--coral);
+}
+
+.goal-editor-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.goal-add-button {
+  justify-self: start;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  padding: 8px 14px;
+  font-weight: 850;
+}
+
+.goal-add-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.goal-editor-cap-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.56rem;
+}
+
 .input-shell em {
   position: absolute;
   right: 10px;
@@ -6643,6 +6769,10 @@ td {
   .chart-pair,
   .scenario-layout,
   .drawer-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .goal-row {
     grid-template-columns: 1fr;
   }
 

@@ -1,12 +1,12 @@
 ---
 title: "Retirement Planner In-Product String Catalog"
 created: 2026-05-12
-updated: 2026-05-20
+updated: 2026-07-06
 type: project/ui-reference
 status: governing-reference
-version: "1.4.0"
-revision: 5
-last_updated: 2026-05-20
+version: "1.5.0"
+revision: 6
+last_updated: 2026-07-06
 tags: [ui, microcopy, help]
 project: fin-dashboard
 owners: [msambare]
@@ -33,6 +33,8 @@ The dashboard should sound like a calm retirement planner: clear, specific, and 
 - Sensitivity Heatmap - color semantics based on real purchasing power.
 - End Target Chance - sample count, seed, 95% band, and "planning sensitivity, not prediction" language.
 - Tax Law Studio - review badge, diff confirmation, source metadata safeguards, and CA-review language.
+- Dynamic Withdrawal Rules - Fixed / Guardrails / % of corpus choice, guardrail band and adjustment, spending floor, and the honest planning-grade caveat.
+- Planned Lump-Sum Goals - up to 10 named one-time goals with amount, year, and per-goal inflation toggle.
 
 ## Error and Warning Style
 
@@ -44,6 +46,7 @@ Export and trust strings must travel with downloaded artifacts. CSV/PDF/review-p
 
 | Version | Revision | Date | Change |
 |---------|----------|------|--------|
+| 1.5.0 | 6 | 2026-07-06 | fin-8fb F2/F3 UI pass — withdrawal-rule controls, planned lump-sum goals editor, goal timeline markers, and their help-topic/aria strings (fin-8fb.8). |
 | 1.4.0 | 5 | 2026-05-20 | R4.9.5b — Decision Workspace tooltip copy and verdict variant rewrites (fin-62w). |
 | 1.3.0 | 4 | 2026-05-14 | Added Trust Center, Retiree Guided Mode, Scenario Library, and Adviser / CA Pack string contracts. |
 | 1.2.0 | 3 | 2026-05-14 | Added scenario timeline, End Target Chance, Tax Law Studio safeguard, and export trust-framing string contracts. |
@@ -220,3 +223,77 @@ Replaces: `"Not yet; the plan needs a clearer funding bridge."` (headline) and
 
 Design intent: name the three concrete levers (corpus / cash / return) rather than the abstract
 "funding bridge," and point to the solver/planner specifically.
+
+---
+
+## fin-8fb F2/F3 — Dynamic Withdrawal Rules and Planned Lump-Sum Goals
+
+Phase: fin-8fb.8 (2026-07). UI pass surfacing the F2 (dynamic withdrawal rules) and F3
+(multi-goal planned lump sums) model features landed by a sibling model task. All strings
+below are **[LIVE]** in `src/main.jsx`.
+
+### Assumption Studio — Risk & Goals tab (withdrawal rule)
+
+Component attachment: `ChoiceGroup` + conditional `Control` rows in `AssumptionDrawer`'s
+`risk` panel (`src/main.jsx`, panel `<section className={panelClass("risk")}>`).
+
+| Field | Label | Note copy |
+|-------|-------|-----------|
+| `withdrawalRule` | "Withdrawal rule" | Options: "Fixed" / "Guardrails" / "% of corpus", each with a one-line `note` ("Inflation-indexed, unchanged" / "Cuts, raises, or holds spending" / "Recomputed every year"). |
+| `guardrailBandPct` | "Guardrail band" | Disabled note: "Only used by the Guardrails withdrawal rule." Active note: "Spending is cut or raised once the withdrawal rate drifts this far from the year-one rate." |
+| `guardrailAdjustPct` | "Guardrail adjustment" | Active note: "Size of each cut or raise when a guardrail band is breached." |
+| `percentOfCorpusRate` | "Percent of corpus rate" | Active note: "Cash target is recomputed as this share of opening corpus every year." |
+| `spendingFloorMonthly` | "Spending floor" | Disabled note: "Only used by Guardrails and % of corpus." Active note: "Minimum monthly cash in today's rupees; the resolved target never falls below this." |
+
+A `.drawer-note` tutorial button follows the same field group (matching the existing Monthly
+FIFO ledger tutorial note pattern): *"Guardrails cut, raise, or briefly hold spending near the
+year-one withdrawal rate; % of corpus recomputes the cash target from opening corpus every
+year. Tap for the full withdrawal-rule guide."* — opens the new `withdrawalRules` help topic.
+
+### Insights rail — Withdrawal Rule statement row
+
+Component attachment: `StatementRow` in the desktop `.statement-card` and the mobile
+`.mobile-insights-sheet` statement card, rendered only when `withdrawalRule !== "fixed"`.
+
+Value copy pattern: `"${Cut|Raised|Held|On track} · ${multiplier%}"`, e.g. `"Cut · 90%"` or
+`"On track · 100%"`. The row uses the `coral` accent only for a `"cut"` action, matching the
+existing Cash Goal / Tax Drag accent convention (less-favorable metrics get the warm accent).
+
+### Assumption Studio — Household tab (planned lump-sum goals)
+
+Component attachment: `PlannedGoalsEditor` (new component) replacing the legacy three-field
+`plannedLumpSumAmount` / `plannedLumpSumYear` / `plannedLumpSumInflate` `Control` rows in
+`AssumptionDrawer`'s `household` panel.
+
+- Field group label: "Planned lump-sum goals" (help chip opens the new `plannedGoals` topic).
+- Empty state: *"No planned lump-sum goals yet. Add a car, wedding, renovation, or other
+  one-time goal below."*
+- Per-goal row fields: "Goal name" (text, 40-char cap), "Amount", "Year", "Inflate" (Yes/No
+  select), and a trash-can remove button (`aria-label="Remove goal N: <name>"`).
+- Add action: "Add goal" button, disabled at the 10-goal cap with hint *"Up to 10 planned
+  goals; remove one to add another."*
+- Model-normalization is the source of truth: the editor writes the whole array through
+  `setField("plannedLumpSums", nextArray)` and displays whatever `normalizeState` /
+  `sanitizePlannedLumpSums` returns, rather than re-validating locally.
+
+### Saved Scenario Timeline — goal markers
+
+Component attachment: `.goal-marker-strip` in `ScenarioTimeline`, rendered above the existing
+snapshot-save form when `goals.length > 0` (goals come from `householdPlanProfile(...)
+.plannedLumpSums`, so the strip only appears in household-plan mode with at least one goal).
+
+Each marker: `title`/`aria-label` = `"${goal.name || "Planned goal"} in year ${goal.year}"`;
+visible chip content is `Y<year>` plus the goal name. This is additive to `ScenarioTimeline`'s
+existing DOM (new class names only) — the component is not part of the visual-regression
+matrix, so no baseline snapshot is affected.
+
+### New Help topics
+
+- **Dynamic Withdrawal Rules** (`withdrawalRules`, category `metrics`) — explains what each
+  rule does and states plainly that this is "a planning-grade simulation of a spending rule,
+  not a guarantee that a retiree will actually follow it in a real bad market."
+- **Planned Lump-Sum Goals** (`plannedGoals`, category `metrics`) — explains the editor, the
+  household-plan gate, and the sanitizer's clamp/drop behavior in plain language.
+
+Cross-links added: `household` → `plannedGoals`; `risk` → `withdrawalRules`; `goals` (Gap
+Solver topic) → `plannedGoals`.

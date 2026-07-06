@@ -34,6 +34,7 @@ import puppeteer from "puppeteer-core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { THEME_KEY } from "../../src/persistence.js";
 
 // Chrome executable path:
 //   1. PUPPETEER_EXECUTABLE_PATH env var (CI sets this from
@@ -126,6 +127,26 @@ export async function withBrowser(launchOpts, testFn) {
 
   try {
     const page = await browser.newPage();
+    // fin-8fb.14 (W-0002): app.html's bootstrap now respects prefers-color-
+    // scheme when no explicit theme is stored, but headless Chrome's own
+    // default preference is LIGHT. Every existing e2e/visual baseline was
+    // captured assuming the old hardcoded-dark default, so force the
+    // emulated system preference to dark here — this reproduces that old
+    // default exactly. An explicit stored/toggled theme still always wins
+    // (see resolveThemePreference in src/main.jsx), so tests that toggle
+    // themes explicitly are unaffected.
+    await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "dark" }]);
+    // Belt-and-suspenders: also pre-seed the theme storage key so any code
+    // path that reads it directly still sees a dark default. Guarded so it
+    // never clobbers a value a test (or the app itself, via the theme
+    // toggle) already wrote — e.g. across a page.reload() mid-test.
+    await page.evaluateOnNewDocument((themeKey) => {
+      try {
+        if (!window.localStorage.getItem(themeKey)) {
+          window.localStorage.setItem(themeKey, JSON.stringify("dark"));
+        }
+      } catch (_) {}
+    }, THEME_KEY);
     await testFn({ browser, page });
   } finally {
     try { await browser.close(); } catch {}

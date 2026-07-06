@@ -46,8 +46,9 @@ const MIME = {
   ".json": "application/json;charset=utf-8"
 };
 
-/** Total topic count expected per R4.9.5f manifest. */
-const EXPECTED_TOPIC_COUNT = 69;
+/** Total topic count expected per R4.9.5f manifest.
+ * fin-8fb.8: +2 for withdrawalRules and plannedGoals (F2/F3 help topics). */
+const EXPECTED_TOPIC_COUNT = 71;
 
 /** Eyewash markers — case-insensitive search. */
 const EYEWASH_PATTERNS = [

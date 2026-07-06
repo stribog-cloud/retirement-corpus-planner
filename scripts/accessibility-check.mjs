@@ -68,6 +68,10 @@ const server = await startServer();
 const port = server.address().port;
 const browser = await puppeteer.launch({ executablePath: chrome, headless: "new", args: ["--no-sandbox", "--disable-gpu"] });
 const page = await browser.newPage();
+// fin-8fb.14 (W-0002): headless Chrome defaults to prefers-color-scheme
+// light; force dark so this gate's baseline behaviour matches every other
+// e2e harness (see tests/e2e/_browser-helper.mjs for the full rationale).
+await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "dark" }]);
 const failures = [];
 
 try {
